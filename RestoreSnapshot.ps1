@@ -1,0 +1,1 @@
+Restore-DbaDbSnapshot -SqlInstance . -Database AxDB -Force
