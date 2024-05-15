@@ -12,19 +12,19 @@ param (
 $sourceFile = "K:\AosService\WebRoot\web.config"
 $destFile = "K:\AosService\WebRoot\web___DEV___.config"
 
-# Check if the destination file exists and abort
-if (Test-Path -Path $destFile -PathType Leaf ) {
-    Write-Host "Destination file already exists: $destFile aborting"
-    exit -1
-}
 # Check if the source file exists
 if (Test-Path -Path $sourceFile -PathType Leaf ) {
-    # Duplicate the source file
-    Copy-Item -Path $sourceFile -Destination $destFile -ErrorAction Stop
+    # Check if the destination file exists
+    if (Test-Path -Path $destFile -PathType Leaf ) {
+        Write-Host "Destination file already exists: $destFile skiping backup"
+    }
+    else {
+        # Duplicate the source file
+        Copy-Item -Path $sourceFile -Destination $destFile -ErrorAction Stop
+    }
 
     # Load the XML configuration file
     [xml]$xmlConfig = Get-Content $sourceFile
-
 
     $ServerNamepair = $DBServerDBName -split '\\'
     $DBServer = $ServerNamepair[0]
