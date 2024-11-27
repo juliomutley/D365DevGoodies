@@ -13,7 +13,7 @@ If(!(test-path "$logDrive\MSSQL_LOGS"))
     New-Item -ItemType Directory -Force -Path "$logDrive\MSSQL_LOGS"
 }
 
-
+Set-DbatoolsConfig -FullName 'sql.connection.trustcert' -Value $true -Register
 Invoke-DbaDbShrink -SqlInstance . -Database $dbName -FileType Log -ShrinkMethod TruncateOnly
 
 Move-DbaDbFile -SqlInstance . -Database $dbName -FileType Data -FileDestination "$dataDrive\MSSQL_DATA"

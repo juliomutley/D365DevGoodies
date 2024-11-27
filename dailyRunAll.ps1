@@ -32,22 +32,20 @@ $Module2Service | ForEach-Object {
     else {
         Write-Host "Installing powershell module" $_
         Install-Module -Name $_ -SkipPublisherCheck -Scope AllUsers
-        Import-Module $_
     }
+    Import-Module $_
 }
 #endregion
 
 #region models
 $Models2Compile = $(`
-    'Model1',
-    'Model2',
-    'Model3'
+      'model1'
+    , 'model2'
 )
 
 $Models2UndoChanges = $(`
-    'Model1',
-    'Model2',
-    'Model3'
+      'ISVModel1'
+    , 'ISVModel2'
 )
 #endregion models
 
@@ -57,16 +55,20 @@ $ErrorFGColor = "White"
 $ActionFGColor = "White"
 $ActionBGColor = "DarkGreen"
 $FinishedFGColor = "Green"
+$D365Environment = Get-D365EnvironmentSettings
 $currentDirectory = Get-Location
 $ExecutionStartTime = $(Get-Date)
-$PackagesLocalDirectory = 'k:\AOSService\PackagesLocalDirectory'
+$PackagesLocalDirectory = $D365Environment.Common.BinDir
 
-if (test-path "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer"){
-    $tfExe = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\TF.exe"
+[bool] $vsSetupExists = $null -ne (Get-Command Get-VSSetupInstance -ErrorAction SilentlyContinue)
+if (!$vsSetupExists)
+{
+    Write-Verbose "Installing the VSSetup module..."
+    Install-Module VSSetup -Scope CurrentUser -Force
 }
-else {
-    $tfExe = "C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\TF.exe"
-}
+[string] $visualStudioInstallationPath = (Get-VSSetupInstance | Select-VSSetupInstance -Latest -Require Microsoft.Component.MSBuild).InstallationPath
+
+$tfExe = (Get-ChildItem $visualStudioInstallationPath -Recurse -Filter "TF.exe" | Select-Object -First 1).FullName
 #endregion variables
 
 #region Functions
@@ -82,15 +84,9 @@ function Finished($StartTime) {
 }
 
 function pause ($message) {
-    # Check if running Powershell ISE
-    if ($psISE) {
-        Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.MessageBox]::Show("$message")
-    }
-    else {
-        Write-Host "$message" -ForegroundColor Yellow
-        $host.ui.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    }
+    Write-Host ""
+    Write-Host "*** $message ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+    Write-Host
 }
 
 function Invoke-CompileModel($Model) {
@@ -111,19 +107,15 @@ function Invoke-CompileModel($Model) {
 
     $TaskStartTime = $(Get-Date)
 
-    $LableCArgs = @("-metadata=$PackagesLocalDirectory\",
-        "-output=$PackagesLocalDirectory\$Model\Resources",
-        "-modelmodule=$Model"
-        "-OutLog=$PackagesLocalDirectory\$Model\LabelC_outlog.log",
-        "-ErrLog=$PackagesLocalDirectory\$Model\LabelC_ErrLog.log")
-    &"$PackagesLocalDirectory\Bin\labelc.exe" $LableCArgs
+    Invoke-D365ModuleLabelGeneration -Module $Model -LogPath $PackagesLocalDirectory
 
-    if ((Get-Item "$PackagesLocalDirectory\$Model\LabelC_ErrLog.log").Length -gt 0)
+    if ((Test-Path -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err" -PathType Leaf) -and `
+        ((Get-Item "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err").Length -gt 0)) 
     {
         Write-Host ""
         Write-Host "*** Label compilation error on model $Model... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
-        Get-Content -Path "$PackagesLocalDirectory\$Model\LabelC_ErrLog.log"
+        Get-Content -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err"
         [system.media.systemsounds]::Hand.play()
         Set-Location $currentDirectory
         Pause("Press any key to continue...")
@@ -134,33 +126,22 @@ function Invoke-CompileModel($Model) {
     Write-Host "*** Building model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
     Write-Host ""
 
-    $xppcArgs = @("-metadata=$PackagesLocalDirectory\",
-        "-compilermetadata=$PackagesLocalDirectory\",
-        "-xref",
-        "-xrefSqlServer=localhost",
-        "-xrefDbName=DYNAMICSXREFDB",
-        "-output=$PackagesLocalDirectory\$Model\bin",
-        "-modelmodule=$Model",
-        "-xmllog=$PackagesLocalDirectory\$Model\BuildModelResult.xml",
-        "-log=$PackagesLocalDirectory\$Model\BuildModelResult.log",
-        "-appBase=$PackagesLocalDirectory\Bin",
-        "-refPath=$PackagesLocalDirectory\$Model\bin",
-        "-referenceFolder=$PackagesLocalDirectory\")
-
-    &"$PackagesLocalDirectory\Bin\xppc.exe" $xppcArgs
+    Invoke-D365ModuleCompile -Module $Model -XRefGeneration -LogPath $PackagesLocalDirectory
 
     Finished $TaskStartTime
 
-    if (test-path "$PackagesLocalDirectory\$Model\*.err.xml")
+    if ((Test-Path -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml" -PathType Leaf) -and `
+        ((Get-Item "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml").Length -gt 0))
     {
         Write-Host ""
         Write-Host "*** Compilation error on model $Model... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
-        code "$PackagesLocalDirectory\$Model\BuildModelResult.err.xml"
+        code "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml"
         Set-Location $currentDirectory
         [system.media.systemsounds]::Hand.play()
         Pause("Press any key to continue...")
         exit
+        
     }
 
     Write-Host ""
@@ -169,21 +150,13 @@ function Invoke-CompileModel($Model) {
 
     $TaskStartTime = $(Get-Date)
 
-    $xppbpArgs = @("-metadata=$PackagesLocalDirectory\",
-        "-compilermetadata=$PackagesLocalDirectory\",
-        "-packagesRoot=$PackagesLocalDirectory\",
-        "-all",
-        "-module=$Model",
-        "-model=$Model",
-        "-car=$PackagesLocalDirectory\$Model\car.$Model.xlsx",
-        "-xmllog=$PackagesLocalDirectory\$Model\BPCheck.$Model.xml")
-
-    &"$PackagesLocalDirectory\Bin\xppbp.exe" $xppbpArgs
+    Invoke-D365BestPractice -Module $Model -Model $Model -LogPath $PackagesLocalDirectory
     Finished $TaskStartTime
 
 }
 #endregion Functions
 
+#Region Main
 stop-process -name devenv -ErrorAction Ignore
 
 Write-Host ""
@@ -196,25 +169,19 @@ Write-Host "purging disposable data"
 
 $DiposableTables = @(
     "formRunConfiguration"
-    ,"syslastvalue"
+    ,"SysLastValue"
+    ,"SysUserLog"
 )
 
 $DiposableTables | ForEach-Object {
     Write-Host "purging $_"
     $sql = "truncate table $_"
-    Invoke-Sqlcmd -Query $sql -ServerInstance "." -Database "AxDb"
+    Invoke-DbaQuery -Query $sql -SqlInstance "." -Database "AxDb"
 }
 
-Get-Service DynamicsAxBatch `
-    , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
-    , W3SVC `
-    , MR2012ProcessService `
-    , MSSQLSERVER `
-| Stop-Service -Force -ErrorAction SilentlyContinue
+Stop-D365Environment -Kill
 
 Stop-Process -Name "iisexpress" -ErrorAction SilentlyContinue
-
-Start-Service MSSQLSERVER
 
 Finished $TaskStartTime
 
@@ -226,7 +193,7 @@ Write-Host "*** Undoing ISV changes... ***" -ForegroundColor $ActionFGColor -Bac
 Write-Host ""
 
 $TaskStartTime = $(Get-Date)
- 
+
 $Models2UndoChanges | ForEach-Object {
     $TFArgs = @('undo', '*', '/recursive', '/noprompt') 
     if(!(Test-Path "$packagesLocalDirectory\$_"))
@@ -240,6 +207,15 @@ $Models2UndoChanges | ForEach-Object {
     }
     Set-Location "$packagesLocalDirectory\$_"
     &$tfExe $TFArgs
+    if($LASTEXITCODE -gt 1)
+    {
+        Write-Host ""
+        Write-Host "*** $Model failed to undo changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+        Write-Host ""
+        Pause("Press any key to continue...")
+        Set-Location $currentDirectory
+        exit
+    }
 }
 
 Finished $TaskStartTime
@@ -263,6 +239,15 @@ $Models2Compile | ForEach-Object {
     }
     Set-Location "$packagesLocalDirectory\$_"
     &$tfExe $TFArgs
+    if($LASTEXITCODE -gt 1)
+    {
+        Write-Host ""
+        Write-Host "*** $Model failed to get latest changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+        Write-Host ""
+        Pause("Press any key to continue...")
+        Set-Location $currentDirectory
+        exit
+    }
 
     [xml]$XmlDocument = Get-Content -Path "$PackagesLocalDirectory\$_\Descriptor\*.xml"
 
@@ -292,30 +277,18 @@ Write-Host ""
 
 $TaskStartTime = $(Get-Date)
 
-Get-Service DynamicsAxBatch `
-    , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
-    , W3SVC `
-    , MR2012ProcessService `
-| Start-Service -ErrorAction SilentlyContinue
 
 ElapsedTime $TaskStartTime
+#end region
 
+#region sync db
 Write-Host ""
 Write-Host "*** Syncronizing database... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
 Write-Host ""
 
 $TaskStartTime = $(Get-Date)
 
-$SyncEngineArgs = @(
-    '-syncmode=fullall'
-    , "-metadatabinaries=$PackagesLocalDirectory\"
-    , '-connect=Data Source=localhost;Initial Catalog=AxDB;Integrated Security=True'
-    , '-continueOnError=False'
-    , '-verbosity=Diagnostic'
-    , '-enableParallelSync'
-)
-
-Remove-Item "$PackagesLocalDirectory\DBSynchronization.*"
+Remove-Item "$PackagesLocalDirectory\syncLog" -Recurse -force -ErrorAction Ignore
 
 $totalServerMemory = Get-WMIObject -Computername . -class win32_ComputerSystem | Select-Object -Expand TotalPhysicalMemory
 $memoryForSqlServer = ($totalServerMemory * 0.7) / 1024 / 1024
@@ -324,13 +297,14 @@ Set-DbatoolsConfig -Name Import.SqlpsCheck -Value $false -PassThru | Register-Db
 
 Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
 
-&"$PackagesLocalDirectory\Bin\syncengine.exe" $SyncEngineArgs > "$PackagesLocalDirectory\DBSynchronization.log"
+Invoke-D365DbSync -LogPath "$PackagesLocalDirectory\syncLog"
 
-$memoryForSqlServer = ($totalServerMemory * 0.15) / 1024 / 1024
+$memoryForSqlServer = ($totalServerMemory * 0.35) / 1024 / 1024
 
 Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
 
-iisreset.exe
+K:\git\d365-resources\365_PowerShell\enableServices.ps1
+Start-D365Environment 
 
 Finished $TaskStartTime
 
@@ -338,8 +312,9 @@ Write-Host ""
 Write-Host "*** All done! ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
 Write-Host ""
 
+#end region
+
 ElapsedTime $ExecutionStartTime
-[system.media.systemsounds]::Hand.play()
 $MenuItem = 'FeatureManagementCheckForUpdates'
 
 $D365Url = Get-D365Url
@@ -362,7 +337,7 @@ else {
     $adminUser = "admin"
 
     $deleteAppSql = "DELETE FROM [dbo].[SYSAADCLIENTTABLE] WHERE AADCLIENTID = '$clientId'"
-    Invoke-Sqlcmd -Query $deleteAppSql -ServerInstance "." -Database "AxDb"
+    Invoke-DbaQuery -Query $deleteAppSql -SqlInstance "." -Database "AxDb"
 
     Import-D365AadApplication `
         -Name $appName `
@@ -389,7 +364,12 @@ else {
     Invoke-D365DmfInit -Verbose -Token $token -EnableException $true
 }
 
+#endregion Refresh data entities
+
+#Region SO maintenance
+Set-Location K:\git\d365-resources\365_PowerShell
 .\updateApps.ps1
+#endregion SO maintenance
 
 Set-MpPreference -DisableRealtimeMonitoring $false
 

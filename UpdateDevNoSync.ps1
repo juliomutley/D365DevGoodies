@@ -1,10 +1,9 @@
-﻿Set-MpPreference -DisableRealtimeMonitoring $true
-
-#region models
+﻿#region models
 $Models2Compile = $(`
     'Model1',
     'Model2',
     'Model3'
+)
 )
 #endregion models
 
@@ -14,16 +13,20 @@ $ErrorFGColor = "White"
 $ActionFGColor = "White"
 $ActionBGColor = "DarkGreen"
 $FinishedFGColor = "Green"
+$D365Environment = Get-D365EnvironmentSettings
 $currentDirectory = Get-Location
 $ExecutionStartTime = $(Get-Date)
-$PackagesLocalDirectory = 'k:\AOSService\PackagesLocalDirectory'
+$PackagesLocalDirectory = $D365Environment.Common.BinDir
 
-if (test-path "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer"){
-    $tfExe = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\TF.exe"
+[bool] $vsSetupExists = $null -ne (Get-Command Get-VSSetupInstance -ErrorAction SilentlyContinue)
+if (!$vsSetupExists)
+{
+    Write-Verbose "Installing the VSSetup module..."
+    Install-Module VSSetup -Scope CurrentUser -Force
 }
-else {
-    $tfExe = "C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\TF.exe"
-}
+[string] $visualStudioInstallationPath = (Get-VSSetupInstance | Select-VSSetupInstance -Latest -Require Microsoft.Component.MSBuild).InstallationPath
+
+$tfExe = (Get-ChildItem $visualStudioInstallationPath -Recurse -Filter "TF.exe" | Select-Object -First 1).FullName
 #endregion variables
 
 #region Functions
@@ -68,19 +71,15 @@ function Invoke-CompileModel($Model) {
 
     $TaskStartTime = $(Get-Date)
 
-    $LableCArgs = @("-metadata=$PackagesLocalDirectory\",
-        "-output=$PackagesLocalDirectory\$Model\Resources",
-        "-modelmodule=$Model"
-        "-OutLog=$PackagesLocalDirectory\$Model\LabelC_outlog.log",
-        "-ErrLog=$PackagesLocalDirectory\$Model\LabelC_ErrLog.log")
-    &"$PackagesLocalDirectory\Bin\labelc.exe" $LableCArgs
+    Invoke-D365ModuleLabelGeneration -Module $Model -LogPath $PackagesLocalDirectory
 
-    if ((Get-Item "$PackagesLocalDirectory\$Model\LabelC_ErrLog.log").Length -gt 0)
+    if ((Test-Path -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err" -PathType Leaf) -and `
+        ((Get-Item "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err").Length -gt 0)) 
     {
         Write-Host ""
         Write-Host "*** Label compilation error on model $Model... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
-        Get-Content -Path "$PackagesLocalDirectory\$Model\LabelC_ErrLog.log"
+        Get-Content -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err"
         [system.media.systemsounds]::Hand.play()
         Set-Location $currentDirectory
         Pause("Press any key to continue...")
@@ -91,33 +90,22 @@ function Invoke-CompileModel($Model) {
     Write-Host "*** Building model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
     Write-Host ""
 
-    $xppcArgs = @("-metadata=$PackagesLocalDirectory\",
-        "-compilermetadata=$PackagesLocalDirectory\",
-        "-xref",
-        "-xrefSqlServer=localhost",
-        "-xrefDbName=DYNAMICSXREFDB",
-        "-output=$PackagesLocalDirectory\$Model\bin",
-        "-modelmodule=$Model",
-        "-xmllog=$PackagesLocalDirectory\$Model\BuildModelResult.xml",
-        "-log=$PackagesLocalDirectory\$Model\BuildModelResult.log",
-        "-appBase=$PackagesLocalDirectory\Bin",
-        "-refPath=$PackagesLocalDirectory\$Model\bin",
-        "-referenceFolder=$PackagesLocalDirectory\")
-
-    &"$PackagesLocalDirectory\Bin\xppc.exe" $xppcArgs
+    Invoke-D365ModuleCompile -Module $Model -XRefGeneration -LogPath $PackagesLocalDirectory
 
     Finished $TaskStartTime
 
-    if (test-path "$PackagesLocalDirectory\$Model\*.err.xml")
+    if ((Test-Path -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml" -PathType Leaf) -and `
+        ((Get-Item "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml").Length -gt 0))
     {
         Write-Host ""
         Write-Host "*** Compilation error on model $Model... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
-        code "$PackagesLocalDirectory\$Model\BuildModelResult.err.xml"
+        code "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml"
         Set-Location $currentDirectory
         [system.media.systemsounds]::Hand.play()
         Pause("Press any key to continue...")
         exit
+        
     }
 
     Finished $TaskStartTime
@@ -132,11 +120,7 @@ Write-Host "*** Stopping services... ***" -ForegroundColor $ActionFGColor -Backg
 Write-Host ""
 
 $TaskStartTime = $(Get-Date)
-Get-Service DynamicsAxBatch `
-    , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
-    , W3SVC `
-    , MR2012ProcessService `
-| Stop-Service -Force -ErrorAction SilentlyContinue
+Stop-D365Environment -Kill
 
 Stop-Process -Name "iisexpress" -ErrorAction SilentlyContinue
 
@@ -146,6 +130,7 @@ Finished $TaskStartTime
 Get-ChildItem -File "C:\inetpub\logs\LogFiles" -Recurse | Where-Object {$_.CreationTime -lt ((Get-Date).AddDays(-7).Date)} | Remove-Item
 
 $TaskStartTime = $(Get-Date)
+
 
 $Models2Compile | ForEach-Object { Invoke-CompileModel $_ }
 
@@ -161,21 +146,9 @@ Write-Host ""
 
 $TaskStartTime = $(Get-Date)
 
-Get-Service DynamicsAxBatch `
-    , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
-    , W3SVC `
-    , MR2012ProcessService `
-| Start-Service -ErrorAction SilentlyContinue
 
 ElapsedTime $TaskStartTime
 
-
-
-
-
-
-
-iisreset.exe
 
 Finished $TaskStartTime
 

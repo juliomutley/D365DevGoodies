@@ -1,7 +1,7 @@
 ﻿Set-MpPreference -DisableRealtimeMonitoring $true
 #Region Variables
-$Models2Compile = $(`
-     'ModelName'
+$Models2Compile = $(
+    'model'
 )
 
 $ActionFGColor = "White"
@@ -9,10 +9,21 @@ $ActionBGColor = "DarkGreen"
 $ErrorFGColor = "White"
 $ErrorBGColor = "Red"
 $FinishedFGColor = "Green"
+$D365Environment = Get-D365EnvironmentSettings
 $currentDirectory = Get-Location
 $ExecutionStartTime = $(Get-Date)
-$PackagesLocalDirectory = 'k:\AOSService\PackagesLocalDirectory'
-#endregion
+$PackagesLocalDirectory = $D365Environment.Common.BinDir
+
+[bool] $vsSetupExists = $null -ne (Get-Command Get-VSSetupInstance -ErrorAction SilentlyContinue)
+if (!$vsSetupExists)
+{
+    Write-Verbose "Installing the VSSetup module..."
+    Install-Module VSSetup -Scope CurrentUser -Force
+}
+[string] $visualStudioInstallationPath = (Get-VSSetupInstance | Select-VSSetupInstance -Latest -Require Microsoft.Component.MSBuild).InstallationPath
+
+$tfExe = (Get-ChildItem $visualStudioInstallationPath -Recurse -Filter "TF.exe" | Select-Object -First 1).FullName
+#endregion variables
 
 #region Functions
 function ElapsedTime($TaskStartTime) {
@@ -56,19 +67,15 @@ function Invoke-CompileModel($Model) {
 
     $TaskStartTime = $(Get-Date)
 
-    $LableCArgs = @("-metadata=$PackagesLocalDirectory\",
-        "-Output=$PackagesLocalDirectory\$Model\Resources",
-        "-modelmodule=$Model"
-        "-OutLog=$PackagesLocalDirectory\$Model\LabelC_outlog.log",
-        "-ErrLog=$PackagesLocalDirectory\$Model\LabelC_ErrLog.log")
-    &"$PackagesLocalDirectory\Bin\labelc.exe" $LableCArgs
+    Invoke-D365ModuleLabelGeneration -Module $Model -LogPath $PackagesLocalDirectory
 
-    if ((Get-Item "$PackagesLocalDirectory\$Model\LabelC_ErrLog.log").Length -gt 0)
+    if ((Test-Path -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err" -PathType Leaf) -and `
+        ((Get-Item "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err").Length -gt 0)) 
     {
         Write-Host ""
         Write-Host "*** Label compilation error on model $Model... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
-        Get-Content -Path "$PackagesLocalDirectory\$Model\LabelC_ErrLog.log"
+        Get-Content -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err"
         [system.media.systemsounds]::Hand.play()
         Set-Location $currentDirectory
         Pause("Press any key to continue...")
@@ -79,33 +86,22 @@ function Invoke-CompileModel($Model) {
     Write-Host "*** Building model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
     Write-Host ""
 
-    $xppcArgs = @("-metadata=$PackagesLocalDirectory\",
-        "-compilermetadata=$PackagesLocalDirectory\",
-        "-xref",
-        "-xrefSqlServer=localhost",
-        "-xrefDbName=DYNAMICSXREFDB",
-        "-output=$PackagesLocalDirectory\$Model\bin",
-        "-modelmodule=$Model",
-        "-xmllog=$PackagesLocalDirectory\$Model\BuildModelResult.xml",
-        "-log=$PackagesLocalDirectory\$Model\BuildModelResult.log",
-        "-appBase=$PackagesLocalDirectory\Bin",
-        "-refPath=$PackagesLocalDirectory\$Model\bin",
-        "-referenceFolder=$PackagesLocalDirectory\")
-
-    &"$PackagesLocalDirectory\Bin\xppc.exe" $xppcArgs
+    Invoke-D365ModuleCompile -Module $Model -XRefGeneration -LogPath $PackagesLocalDirectory
 
     Finished $TaskStartTime
 
-    if (test-path "$PackagesLocalDirectory\$Model\*.err.xml")
+    if ((Test-Path -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml" -PathType Leaf) -and `
+        ((Get-Item "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml").Length -gt 0))
     {
         Write-Host ""
         Write-Host "*** Compilation error on model $Model... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
-        code "$PackagesLocalDirectory\$Model\BuildModelResult.err.xml"
+        code "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml"
         Set-Location $currentDirectory
         [system.media.systemsounds]::Hand.play()
         Pause("Press any key to continue...")
         exit
+        
     }
 
 }
@@ -132,6 +128,8 @@ Write-Host ""
 Write-Host "*** Finished servicing all models. ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
 Write-Host ""
 
+
 ElapsedTime $ExecutionStartTime
 
 Set-MpPreference -DisableRealtimeMonitoring $false
+[system.media.systemsounds]::Hand.play()

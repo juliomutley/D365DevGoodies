@@ -1,5 +1,5 @@
 choco upgrade all -y
-
+Set-DbatoolsConfig -FullName 'sql.connection.trustcert' -Value $true -Register
 #region Update visual studio
 Get-Process devenv | Stop-Process -ErrorAction Ignore
 

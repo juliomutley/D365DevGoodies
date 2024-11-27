@@ -150,3 +150,20 @@ Get-ChildItem "K:\DeployablePackages" -Include "*.17.0.vsix" -Recurse | ForEach-
     Split-Path -Path $VSInstallDir -Leaf -Resolve
     Start-Process -Filepath "$($VSInstallDir)\VSIXInstaller" -ArgumentList "/q /a $_" -Wait
 }
+
+#region vscode extensions
+$vsCodeExtensions = @(
+    "adamwalzer.string-converter"
+    ,"DotJoshJohnson.xml"
+    ,"IBM.output-colorizer"
+    ,"mechatroner.rainbow-csv"
+    ,"ms-vscode.PowerShell"
+    ,"piotrgredowski.poor-mans-t-sql-formatter-pg"
+    ,"streetsidesoftware.code-spell-checker"
+    ,"ZainChen.json"
+)
+
+$vsCodeExtensions | ForEach-Object {
+    code --install-extension $_
+}
+#endregion

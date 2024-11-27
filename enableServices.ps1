@@ -2,10 +2,7 @@ Get-Service DynamicsAxBatch `
     , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
     , MR2012ProcessService `
     , W3SVC `
-| Set-Service -StartupType Manual 
+    , SQLServerReportingServices `
+| Set-Service -StartupType automatic
 
-Get-Service DynamicsAxBatch `
-    , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
-    , MR2012ProcessService `
-    , W3SVC `
-| Start-Service
+Start-D365Environment
