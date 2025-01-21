@@ -278,7 +278,6 @@ $TaskStartTime = $(Get-Date)
 
 Remove-Item "$PackagesLocalDirectory\syncLog" -Recurse -force -ErrorAction Ignore
 
-
 $totalServerMemory = Get-WMIObject -Computername . -class win32_ComputerSystem | Select-Object -Expand TotalPhysicalMemory
 $memoryForSqlServer = ($totalServerMemory * 0.7) / 1024 / 1024
 
@@ -299,6 +298,7 @@ Finished $TaskStartTime
 Write-Host ""
 Write-Host "*** All done! ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
 Write-Host ""
+
 #end region
 
 ElapsedTime $ExecutionStartTime

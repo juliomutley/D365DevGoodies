@@ -145,15 +145,14 @@ function Invoke-CompileModel($Model) {
 }
 #endregion Functions
 
-#Region Main
 stop-process -name devenv -ErrorAction Ignore
 
 Write-Host "purging disposable data"
 
 $DiposableTables = @(
     "formRunConfiguration"
-    ,"SysLastValue"
-    ,"SysUserLog"
+    ,"syslastvalue"
+    ,"sysuserlog"
 )
 
 $DiposableTables | ForEach-Object {
@@ -267,9 +266,7 @@ $TaskStartTime = $(Get-Date)
 
 
 ElapsedTime $TaskStartTime
-#end region
 
-#region sync db
 Write-Host ""
 Write-Host "*** Syncronizing database... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
 Write-Host ""
@@ -277,7 +274,6 @@ Write-Host ""
 $TaskStartTime = $(Get-Date)
 
 Remove-Item "$PackagesLocalDirectory\syncLog" -Recurse -force -ErrorAction Ignore
-
 
 $totalServerMemory = Get-WMIObject -Computername . -class win32_ComputerSystem | Select-Object -Expand TotalPhysicalMemory
 $memoryForSqlServer = ($totalServerMemory * 0.7) / 1024 / 1024
@@ -299,7 +295,6 @@ Finished $TaskStartTime
 Write-Host ""
 Write-Host "*** All done! ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
 Write-Host ""
-#end region
 
 ElapsedTime $ExecutionStartTime
 [system.media.systemsounds]::Hand.play()
