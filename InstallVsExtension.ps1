@@ -64,18 +64,12 @@ function Invoke-VSInstallExtension {
 
 Get-Process devenv -ErrorAction Ignore | Stop-Process -ErrorAction Ignore
 
-Invoke-VSInstallExtension -Version 2019 -PackageName 'AlexPendleton.LocateinTFS2017'
-Invoke-VSInstallExtension -Version 2022 -PackageName 'Zhenkas.LocateInTFS'
-Invoke-VSInstallExtension -Version 2019 -PackageName 'cpmcgrath.Codealignment-2019'
 Invoke-VSInstallExtension -Version 2022 -PackageName 'cpmcgrath.Codealignment'
-Invoke-VSInstallExtension -Version 2019 -PackageName 'EWoodruff.VisualStudioSpellCheckerVS2017andLater'
 Invoke-VSInstallExtension -Version 2022 -PackageName 'EWoodruff.VisualStudioSpellCheckerVS2022andLater'
-Invoke-VSInstallExtension -Version 2019 -PackageName 'MadsKristensen.OpeninVisualStudioCode'
 Invoke-VSInstallExtension -Version 2022 -PackageName 'MadsKristensen.OpeninVisualStudioCode'
-Invoke-VSInstallExtension -Version 2019 -PackageName 'MadsKristensen.TrailingWhitespaceVisualizer'
 Invoke-VSInstallExtension -Version 2022 -PackageName 'MadsKristensen.TrailingWhitespace64'
-Invoke-VSInstallExtension -Version 2019 -PackageName 'ViktarKarpach.DebugAttachManager'
 Invoke-VSInstallExtension -Version 2022 -PackageName 'ViktarKarpach.DebugAttachManager2022'
+Invoke-VSInstallExtension -Version 2022 -PackageName 'Zhenkas.LocateInTFS'
 
 Write-Host "Installing TrudUtils"
 
