@@ -2,6 +2,8 @@
 
 Set-MpPreference -DisableRealtimeMonitoring $true
 
+.\set-Cypher.ps1
+
 $Module2Service = $('dbatools',
     'd365fo.tools')
 
