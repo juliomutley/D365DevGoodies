@@ -21,7 +21,7 @@ SqlPackage.exe: https://docs.microsoft.com/en-us/sql/tools/sqlpackage/sqlpackage
 dbatools module: https://dbatools.io/
 
 #>
-$bacpacFile = "L:\DB Backup\AxDb_Newest.bacpac" 
+$bacpacFile = "D:\BacPac\PreProd.bacpac" 
 $startTime = $(get-date)
 $arguments = @(
     "/Action:Import"
@@ -31,7 +31,13 @@ $arguments = @(
     , '/p:CommandTimeout="0"'
 )
 
-Invoke-D365InstallSqlPackage
+if (!(Test-Path -Path $bacpacFile)) {
+    Write-Host "BACPAC file not found at $bacpacFile"
+    exit 1
+}
+
+& ./disableservices.ps1
+Invoke-D365InstallSqlPackage -Latest
 
 Set-DbaMaxDop -SqlInstance localhost -MaxDop 0
 #Alocating 40% of the total server memory for sql server

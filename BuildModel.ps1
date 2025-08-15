@@ -109,16 +109,17 @@ function Invoke-CompileModel($Model) {
 
 # Write-Host "purging disposable data"
 
-# $DiposableTables = @(
-#     "formRunConfiguration"
-#     ,"syslastvalue"
-# )
+$DiposableTables = @(
+    "formRunConfiguration"
+    ,"syslastvalue"
+    ,"sysPersonalization"
+)
 
-# $DiposableTables | ForEach-Object {
-#     Write-Host "purging $_"
-#     $sql = "truncate table $_"
-#     Invoke-Sqlcmd -Query $sql -ServerInstance "." -Database "AxDb"
-# }
+$DiposableTables | ForEach-Object {
+    Write-Host "purging $_"
+    $sql = "truncate table $_"
+    Invoke-Sqlcmd -Query $sql -ServerInstance "." -Database "AxDb"
+}
 
 $TaskStartTime = $(Get-Date)
 
