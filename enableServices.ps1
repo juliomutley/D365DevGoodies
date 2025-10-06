@@ -6,3 +6,4 @@ Get-Service DynamicsAxBatch `
 | Set-Service -StartupType automatic
 
 Start-D365Environment
+Start-Service SQLServerReportingServices

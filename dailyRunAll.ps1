@@ -171,6 +171,7 @@ $DiposableTables = @(
     "formRunConfiguration"
     ,"SysLastValue"
     ,"SysUserLog"
+    ,"sysPersonalization"
 )
 
 $DiposableTables | ForEach-Object {
@@ -303,7 +304,7 @@ $memoryForSqlServer = ($totalServerMemory * 0.35) / 1024 / 1024
 
 Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
 
-K:\git\d365-resources\365_PowerShell\enableServices.ps1
+K:\git\D365DevGoodies\365_PowerShell\enableServices.ps1
 Start-D365Environment 
 
 Finished $TaskStartTime
@@ -367,7 +368,7 @@ else {
 #endregion Refresh data entities
 
 #Region SO maintenance
-Set-Location K:\git\d365-resources\365_PowerShell
+Set-Location K:\git\D365DevGoodies\365_PowerShell
 .\updateApps.ps1
 #endregion SO maintenance
 

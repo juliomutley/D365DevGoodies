@@ -20,7 +20,7 @@ Set-DbaMaxDop -SqlInstance . -Database AxDb -MaxDop 0
 
 Set-MpPreference -DisableRealtimeMonitoring $true
 
-Invoke-D365DbSync -MaxDop 0 -Verbosity Detailed
+Invoke-D365DbSync -Verbosity Detailed
 
 Set-MpPreference -DisableRealtimeMonitoring $false
 $memoryForSqlServer = ($totalServerMemory * 0.15) / 1024 / 1024
