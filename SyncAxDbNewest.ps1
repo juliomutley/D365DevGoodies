@@ -1,4 +1,4 @@
-$dbName = 'AxDbNewest'
+$dbName = 'AxDb_Newest'
 Set-DbatoolsConfig -FullName 'sql.connection.trustcert' -Value $true -Register
 $totalServerMemory = Get-WMIObject -Computername . -class win32_ComputerSystem | Select-Object -Expand TotalPhysicalMemory
 $memoryForSqlServer = ($totalServerMemory * 0.7) / 1024 / 1024
