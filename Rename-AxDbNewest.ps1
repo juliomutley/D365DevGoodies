@@ -1,4 +1,6 @@
-$AxDBNewest="AxDb_Newest"
+param(
+    [string]$AxDBNewest = "AxDbNewest"
+)
 Set-DbatoolsConfig -FullName 'sql.connection.trustcert' -Value $true -Register
 Write-Host "Stopping D365 F&O services"
 Get-Service DynamicsAxBatch `
