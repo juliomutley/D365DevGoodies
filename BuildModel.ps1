@@ -16,9 +16,12 @@ the way out by a `finally` block, so a failed build does not leave the machine u
 Name of the D365 model to service. Mandatory.
 
 .PARAMETER ResetUserData
-Truncates the disposable user-data tables (`formRunConfiguration`, `syslastvalue`,
+Truncates the disposable user-data tables (`formRunConfiguration`, `SysLastValue`, `SysUserLog`,
 `sysPersonalization`) in the local `AxDb` before compiling, clearing stale personalization and
-last-value data that can survive a metadata change.
+last-value data that can survive a metadata change. Delegates to `Reset-D365UserData.ps1`, which
+owns the table list and is shared with `UpdateDevAll.ps1`.
+
+Defaults off because `truncate table` is unrecoverable.
 
 .EXAMPLE
 .\BuildModel.ps1 -Model "VFF"
@@ -27,7 +30,7 @@ last-value data that can survive a metadata change.
 .\BuildModel.ps1 -Model "VFF" -ResetUserData
 
 .NOTES
-- Requires d365fo.tools, plus SqlServer when -ResetUserData is used; `code` must be on PATH (VSCode).
+- Requires d365fo.tools, plus dbatools when -ResetUserData is used; `code` must be on PATH (VSCode).
 - Must run elevated (`Set-MpPreference` needs administrator rights).
 - Packages local directory comes from the D365 environment settings, falling back to
   `K:\AosService\PackagesLocalDirectory`. SQL targets instance `.`, database `AxDb`.
@@ -153,24 +156,6 @@ function Invoke-CompileModel($Model) {
 
 }
 
-function Invoke-ResetUserData {
-    Write-Host ""
-    Write-Host "*** Purging disposable user data... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-    Write-Host ""
-
-    # Personalization and last-value data that can break after a metadata change
-    $DisposableTables = @(
-        "formRunConfiguration"
-        ,"syslastvalue"
-        ,"sysPersonalization"
-    )
-
-    $DisposableTables | ForEach-Object {
-        Write-Host "purging $_"
-        $sql = "truncate table $_"
-        Invoke-Sqlcmd -Query $sql -ServerInstance "." -Database "AxDb" -TrustServerCertificate
-    }
-}
 #EndRegion
 
 # On-access scanning slows compilation considerably; the finally block below always restores it,
@@ -179,7 +164,7 @@ Set-MpPreference -DisableRealtimeMonitoring $true
 
 try {
     if ($ResetUserData) {
-        Invoke-ResetUserData
+        & "$PSScriptRoot\Reset-D365UserData.ps1"
     }
 
     $TaskStartTime = $(Get-Date)
