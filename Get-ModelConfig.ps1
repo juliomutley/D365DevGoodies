@@ -3,9 +3,9 @@
 Loads the list of D365 packages to compile and to undo, from models.json.
 
 .DESCRIPTION
-Single source of truth for the model lists the orchestrator scripts (dailyRunAll.ps1, UpdateDev.ps1,
-UpdateDevAll.ps1, UpdateDevNoSync.ps1) used to hardcode individually. Returns an object with two
-string arrays, `ModelsToBuild` and `ModelsToUndoChanges`.
+Single source of truth for the model lists the orchestrator scripts (dailyRunAll.ps1,
+UpdateDevAll.ps1) used to hardcode individually. Returns an object with two string arrays,
+`ModelsToBuild` and `ModelsToUndoChanges`.
 
 The names are package/module FOLDER names under the packages local directory -- the value the
 callers `Test-Path` and `Set-Location` against -- not the inner model names from the descriptor.

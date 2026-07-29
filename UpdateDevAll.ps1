@@ -1,3 +1,84 @@
+<#
+.SYNOPSIS
+    Refreshes a D365 F&O development environment: undo ISV changes, get latest, compile every
+    model in models.json, sync the database, restart services.
+
+.DESCRIPTION
+    The full-refresh orchestrator. In its default form it:
+
+      1. Updates the dbatools / d365fo.tools PowerShell modules.
+      2. Kills Visual Studio and stops the D365 environment and IIS Express.
+      3. Undoes ISV changes and gets latest from TFVC for every configured model.
+      4. Generates labels and compiles each model, with cross-reference generation and a
+         best-practice check.
+      5. Starts the D365 services back up.
+      6. Runs a full database synchronisation, with SQL Server max memory raised to 70% of RAM
+         for the duration and lowered to 35% afterwards.
+      7. Opens the environment on the Feature Management page.
+
+    Model lists come from models.json via Get-ModelConfig.ps1 -- never hardcode them here.
+    Windows Defender real-time monitoring is disabled for the run, since on-access scanning slows
+    compilation considerably.
+
+.PARAMETER NoSync
+    Skips the entire TFVC section (both the undo of ISV changes and the get-latest) and the
+    database synchronisation, leaving a clean-and-compile of the configured models. Services are
+    still stopped and restarted, so the result is a usable environment.
+
+    Defaults off because the normal use of this script is the full refresh; -NoSync is the cheap
+    path for recompiling a local change you have not checked in, and it supersedes the old
+    UpdateDevNoSync.ps1. Note that ModelsToUndoChanges is unused in this mode.
+
+.PARAMETER ResetUserData
+    Truncates the disposable user-data tables in the local AxDb before compiling, via
+    Reset-D365UserData.ps1, clearing stale personalisation and last-value data that can survive a
+    metadata change.
+
+    Defaults off because 'truncate table' is unrecoverable; ask for it when a form starts
+    rendering oddly after a build.
+
+.EXAMPLE
+    .\UpdateDevAll.ps1
+
+    Full refresh: TF undo, get latest, compile all, sync the database.
+
+.EXAMPLE
+    .\UpdateDevAll.ps1 -NoSync
+
+    Compile the configured models only -- no source control, no database sync.
+
+.EXAMPLE
+    .\UpdateDevAll.ps1 -NoSync -ResetUserData
+
+    Same, but purge saved form setups and personalisations first.
+
+.NOTES
+    Requires: d365fo.tools, dbatools, VSSetup (installed on demand); 'code' on PATH for the
+    compiler error log, and TF.exe from a VS2022 installation unless -NoSync is used.
+
+    Must run elevated -- Set-MpPreference and the SQL Server instance settings both need it.
+
+    Long-running: a full compile of several models plus a database sync is measured in hours.
+    Compilation or label errors stop the script and wait for a keypress; the error log opens in
+    VS Code.
+#>
+param(
+    [Parameter(Mandatory = $false)]
+    [switch] $NoSync,
+
+    [Parameter(Mandatory = $false)]
+    [switch] $ResetUserData
+)
+
+# Bail out before touching the environment rather than failing mid-run
+$CurrentPrincipal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $CurrentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host ""
+    Write-Host "*** This script must run elevated. Re-run it as administrator. ***" -ForegroundColor White -BackgroundColor Red
+    Write-Host ""
+    exit 1
+}
+
 #region install modules
 
 Set-MpPreference -DisableRealtimeMonitoring $true
@@ -37,16 +118,21 @@ $currentDirectory = Get-Location
 $ExecutionStartTime = $(Get-Date)
 $PackagesLocalDirectory = $D365Environment.Common.BinDir
 
-[bool] $vsSetupExists = $null -ne (Get-Command Get-VSSetupInstance -ErrorAction SilentlyContinue)
-if (!$vsSetupExists)
+# Locating TF.exe means a recursive scan of the whole VS install tree, so only pay for it when
+# there is actually a TFVC command to run.
+if (-not $NoSync)
 {
-    Write-Verbose "Installing the VSSetup module..."
-    Install-Module VSSetup -Scope CurrentUser -Force
-}
-# Select Visual Studio 2022 specifically (version 17.x)
-[string] $visualStudioInstallationPath = (Get-VSSetupInstance | Where-Object { $_.InstallationVersion -like '17.*' } | Select-VSSetupInstance -Latest -Require Microsoft.Component.MSBuild).InstallationPath
+    [bool] $vsSetupExists = $null -ne (Get-Command Get-VSSetupInstance -ErrorAction SilentlyContinue)
+    if (!$vsSetupExists)
+    {
+        Write-Verbose "Installing the VSSetup module..."
+        Install-Module VSSetup -Scope CurrentUser -Force
+    }
+    # Select Visual Studio 2022 specifically (version 17.x)
+    [string] $visualStudioInstallationPath = (Get-VSSetupInstance | Where-Object { $_.InstallationVersion -like '17.*' } | Select-VSSetupInstance -Latest -Require Microsoft.Component.MSBuild).InstallationPath
 
-$tfExe = (Get-ChildItem $visualStudioInstallationPath -Recurse -Filter "TF.exe" | Select-Object -First 1).FullName
+    $tfExe = (Get-ChildItem $visualStudioInstallationPath -Recurse -Filter "TF.exe" | Select-Object -First 1).FullName
+}
 #endregion variables
 
 #region Functions
@@ -143,18 +229,9 @@ function Invoke-CompileModel($Model) {
 #Region Main
 stop-process -name devenv -ErrorAction Ignore
 
-Write-Host "purging disposable data"
-
-$DiposableTables = @(
-    "formRunConfiguration"
-    ,"SysLastValue"
-    ,"SysUserLog"
-)
-
-$DiposableTables | ForEach-Object {
-    Write-Host "purging $_"
-    $sql = "truncate table $_"
-    Invoke-DbaQuery -Query $sql -SqlInstance "." -Database "AxDb"
+# Opt-in: the table list lives in Reset-D365UserData.ps1, shared with BuildModel.ps1
+if ($ResetUserData) {
+    & "$PSScriptRoot\Reset-D365UserData.ps1"
 }
 
 Write-Host ""
@@ -171,77 +248,88 @@ Finished $TaskStartTime
 #clear IIS logs
 Get-ChildItem -File "C:\inetpub\logs\LogFiles" -Recurse | Where-Object {$_.CreationTime -lt ((Get-Date).AddDays(-7).Date)} | Remove-Item
 
-Write-Host ""
-Write-Host "*** Undoing ISV changes... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-Write-Host ""
-
-$TaskStartTime = $(Get-Date)
-
-$Models2UndoChanges | ForEach-Object {
-    $TFArgs = @('undo', '*', '/recursive', '/noprompt') 
-    if(!(Test-Path "$packagesLocalDirectory\$_"))
-    {
-        Write-Host ""
-        Write-Host "*** $_ not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
-        Write-Host ""
-        Pause("Press any key to continue...")
-        Set-Location $currentDirectory
-        exit
-    }
-    Set-Location "$packagesLocalDirectory\$_"
-    &$tfExe $TFArgs
-    if($LASTEXITCODE -gt 1)
-    {
-        Write-Host ""
-        Write-Host "*** $_ failed to undo changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
-        Write-Host ""
-        Pause("Press any key to continue...")
-        Set-Location $currentDirectory
-        exit
-    }
+#region source control
+if ($NoSync)
+{
+    Write-Host ""
+    Write-Host "*** -NoSync: skipping undo and get latest. ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
+    Write-Host ""
 }
+else
+{
+    Write-Host ""
+    Write-Host "*** Undoing ISV changes... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
+    Write-Host ""
 
-Finished $TaskStartTime
+    $TaskStartTime = $(Get-Date)
 
-Write-Host ""
-Write-Host "*** Getting latest changes from Azure DevOps... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-Write-Host ""
-
-$TaskStartTime = $(Get-Date)
-
-$Models2Compile | ForEach-Object {
-    $TFArgs = @('get', '/recursive')
-    if(!(Test-Path "$packagesLocalDirectory\$_"))
-    {
-        Write-Host ""
-        Write-Host "*** $_ not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
-        Write-Host ""
-        Set-Location $currentDirectory
-        Pause("Press any key to continue...")
-        exit
+    $Models2UndoChanges | ForEach-Object {
+        $TFArgs = @('undo', '*', '/recursive', '/noprompt')
+        if(!(Test-Path "$packagesLocalDirectory\$_"))
+        {
+            Write-Host ""
+            Write-Host "*** $_ not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+            Write-Host ""
+            Pause("Press any key to continue...")
+            Set-Location $currentDirectory
+            exit
+        }
+        Set-Location "$packagesLocalDirectory\$_"
+        &$tfExe $TFArgs
+        if($LASTEXITCODE -gt 1)
+        {
+            Write-Host ""
+            Write-Host "*** $_ failed to undo changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+            Write-Host ""
+            Pause("Press any key to continue...")
+            Set-Location $currentDirectory
+            exit
+        }
     }
-    Set-Location "$packagesLocalDirectory\$_"
-    &$tfExe $TFArgs
-    if($LASTEXITCODE -gt 1)
-    {
-        Write-Host ""
-        Write-Host "*** $_ failed to get latest changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
-        Write-Host ""
-        Pause("Press any key to continue...")
-        Set-Location $currentDirectory
-        exit
+
+    Finished $TaskStartTime
+
+    Write-Host ""
+    Write-Host "*** Getting latest changes from Azure DevOps... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
+    Write-Host ""
+
+    $TaskStartTime = $(Get-Date)
+
+    $Models2Compile | ForEach-Object {
+        $TFArgs = @('get', '/recursive')
+        if(!(Test-Path "$packagesLocalDirectory\$_"))
+        {
+            Write-Host ""
+            Write-Host "*** $_ not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+            Write-Host ""
+            Set-Location $currentDirectory
+            Pause("Press any key to continue...")
+            exit
+        }
+        Set-Location "$packagesLocalDirectory\$_"
+        &$tfExe $TFArgs
+        if($LASTEXITCODE -gt 1)
+        {
+            Write-Host ""
+            Write-Host "*** $_ failed to get latest changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+            Write-Host ""
+            Pause("Press any key to continue...")
+            Set-Location $currentDirectory
+            exit
+        }
+
+        [xml]$XmlDocument = Get-Content -Path "$PackagesLocalDirectory\$_\Descriptor\*.xml"
+
+        $ModelName = $XmlDocument.AxModelInfo.Name
+
+        Set-Location "$packagesLocalDirectory\$_\$ModelName"
+        $TFArgs = @('add', './*.xml', '/recursive')
+        &$tfExe $TFArgs
     }
 
-    [xml]$XmlDocument = Get-Content -Path "$PackagesLocalDirectory\$_\Descriptor\*.xml"
-
-    $ModelName = $XmlDocument.AxModelInfo.Name
-
-    Set-Location "$packagesLocalDirectory\$_\$ModelName"
-    $TFArgs = @('add', './*.xml', '/recursive')
-    &$tfExe $TFArgs
+    Finished $TaskStartTime
 }
-
-Finished $TaskStartTime
+#endregion source control
 
 $TaskStartTime = $(Get-Date)
 
@@ -260,36 +348,45 @@ Write-Host ""
 
 $TaskStartTime = $(Get-Date)
 
+# Started here rather than after the sync so that -NoSync still leaves a usable environment
+Start-D365Environment
 
 ElapsedTime $TaskStartTime
 #end region
 
 #region sync db
-Write-Host ""
-Write-Host "*** Syncronizing database... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-Write-Host ""
+if ($NoSync)
+{
+    Write-Host ""
+    Write-Host "*** -NoSync: skipping database synchronisation. ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
+    Write-Host ""
+}
+else
+{
+    Write-Host ""
+    Write-Host "*** Syncronizing database... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
+    Write-Host ""
 
-$TaskStartTime = $(Get-Date)
+    $TaskStartTime = $(Get-Date)
 
-Remove-Item "$PackagesLocalDirectory\syncLog" -Recurse -force -ErrorAction Ignore
+    Remove-Item "$PackagesLocalDirectory\syncLog" -Recurse -force -ErrorAction Ignore
 
 
-$totalServerMemory = Get-WMIObject -Computername . -class win32_ComputerSystem | Select-Object -Expand TotalPhysicalMemory
-$memoryForSqlServer = ($totalServerMemory * 0.7) / 1024 / 1024
+    $totalServerMemory = Get-WMIObject -Computername . -class win32_ComputerSystem | Select-Object -Expand TotalPhysicalMemory
+    $memoryForSqlServer = ($totalServerMemory * 0.7) / 1024 / 1024
 
-Set-DbatoolsConfig -Name Import.SqlpsCheck -Value $false -PassThru | Register-DbatoolsConfig
+    Set-DbatoolsConfig -Name Import.SqlpsCheck -Value $false -PassThru | Register-DbatoolsConfig
 
-Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
+    Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
 
-Invoke-D365DbSync -LogPath "$PackagesLocalDirectory\syncLog"
+    Invoke-D365DbSync -LogPath "$PackagesLocalDirectory\syncLog"
 
-$memoryForSqlServer = ($totalServerMemory * 0.35) / 1024 / 1024
+    $memoryForSqlServer = ($totalServerMemory * 0.35) / 1024 / 1024
 
-Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
+    Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
 
-Start-D365Environment
-
-Finished $TaskStartTime
+    Finished $TaskStartTime
+}
 
 Write-Host ""
 Write-Host "*** All done! ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
