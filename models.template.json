@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy to models.json (gitignored) and replace with your own package folder names, or run Export-ModelConfig.ps1 to generate it from PackagesLocalDirectory. Names are package/module FOLDER names, not inner model names.",
+  "ModelsToBuild": [
+    "FleetManagement",
+    "FleetManagementExtension",
+    "ContosoExtensions"
+  ],
+  "ModelsToUndoChanges": [
+    "FleetManagement",
+    "ContosoExtensions",
+    "ContosoISV"
+  ]
+}

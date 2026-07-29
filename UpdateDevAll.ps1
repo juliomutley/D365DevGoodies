@@ -21,17 +21,9 @@ $Module2Service | ForEach-Object {
 #endregion
 
 #region models
-$Models2Compile = $(`
-    'Model1',
-    'Model2',
-    'Model3'
-)
-
-$Models2UndoChanges = $(`
-    'Model1',
-    'Model2',
-    'Model3'
-)
+$ModelConfig        = & "$PSScriptRoot\Get-ModelConfig.ps1"
+$Models2Compile     = $ModelConfig.ModelsToBuild
+$Models2UndoChanges = $ModelConfig.ModelsToUndoChanges
 #endregion models
 
 #region variables
@@ -51,7 +43,8 @@ if (!$vsSetupExists)
     Write-Verbose "Installing the VSSetup module..."
     Install-Module VSSetup -Scope CurrentUser -Force
 }
-[string] $visualStudioInstallationPath = (Get-VSSetupInstance | Select-VSSetupInstance -Latest -Require Microsoft.Component.MSBuild).InstallationPath
+# Select Visual Studio 2022 specifically (version 17.x)
+[string] $visualStudioInstallationPath = (Get-VSSetupInstance | Where-Object { $_.InstallationVersion -like '17.*' } | Select-VSSetupInstance -Latest -Require Microsoft.Component.MSBuild).InstallationPath
 
 $tfExe = (Get-ChildItem $visualStudioInstallationPath -Recurse -Filter "TF.exe" | Select-Object -First 1).FullName
 #endregion variables
@@ -141,7 +134,7 @@ function Invoke-CompileModel($Model) {
 
     $TaskStartTime = $(Get-Date)
 
-    Invoke-D365BestPractice -Module $Model -Model $Model -LogPath $PackagesLocalDirectory
+    Invoke-D365BestPractice -Module $Model -Model $Model -PackagesRoot
     Finished $TaskStartTime
 
 }
@@ -189,7 +182,7 @@ $Models2UndoChanges | ForEach-Object {
     if(!(Test-Path "$packagesLocalDirectory\$_"))
     {
         Write-Host ""
-        Write-Host "*** $Model not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+        Write-Host "*** $_ not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
         Pause("Press any key to continue...")
         Set-Location $currentDirectory
@@ -200,7 +193,7 @@ $Models2UndoChanges | ForEach-Object {
     if($LASTEXITCODE -gt 1)
     {
         Write-Host ""
-        Write-Host "*** $Model failed to undo changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+        Write-Host "*** $_ failed to undo changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
         Pause("Press any key to continue...")
         Set-Location $currentDirectory
@@ -221,7 +214,7 @@ $Models2Compile | ForEach-Object {
     if(!(Test-Path "$packagesLocalDirectory\$_"))
     {
         Write-Host ""
-        Write-Host "*** $Model not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+        Write-Host "*** $_ not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
         Set-Location $currentDirectory
         Pause("Press any key to continue...")
@@ -232,7 +225,7 @@ $Models2Compile | ForEach-Object {
     if($LASTEXITCODE -gt 1)
     {
         Write-Host ""
-        Write-Host "*** $Model failed to get latest changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+        Write-Host "*** $_ failed to get latest changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
         Pause("Press any key to continue...")
         Set-Location $currentDirectory

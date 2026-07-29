@@ -38,15 +38,9 @@ $Module2Service | ForEach-Object {
 #endregion
 
 #region models
-$Models2Compile = $(`
-      'model1'
-    , 'model2'
-)
-
-$Models2UndoChanges = $(`
-      'ISVModel1'
-    , 'ISVModel2'
-)
+$ModelConfig        = & "$PSScriptRoot\Get-ModelConfig.ps1"
+$Models2Compile     = $ModelConfig.ModelsToBuild
+$Models2UndoChanges = $ModelConfig.ModelsToUndoChanges
 #endregion models
 
 #region variables
@@ -171,7 +165,6 @@ $DiposableTables = @(
     "formRunConfiguration"
     ,"SysLastValue"
     ,"SysUserLog"
-    ,"sysPersonalization"
 )
 
 $DiposableTables | ForEach-Object {
@@ -200,7 +193,7 @@ $Models2UndoChanges | ForEach-Object {
     if(!(Test-Path "$packagesLocalDirectory\$_"))
     {
         Write-Host ""
-        Write-Host "*** $Model not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+        Write-Host "*** $_ not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
         Pause("Press any key to continue...")
         Set-Location $currentDirectory
@@ -211,7 +204,7 @@ $Models2UndoChanges | ForEach-Object {
     if($LASTEXITCODE -gt 1)
     {
         Write-Host ""
-        Write-Host "*** $Model failed to undo changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+        Write-Host "*** $_ failed to undo changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
         Pause("Press any key to continue...")
         Set-Location $currentDirectory
@@ -232,7 +225,7 @@ $Models2Compile | ForEach-Object {
     if(!(Test-Path "$packagesLocalDirectory\$_"))
     {
         Write-Host ""
-        Write-Host "*** $Model not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+        Write-Host "*** $_ not found, try a get latest from Visual Studio... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
         Set-Location $currentDirectory
         Pause("Press any key to continue...")
@@ -243,7 +236,7 @@ $Models2Compile | ForEach-Object {
     if($LASTEXITCODE -gt 1)
     {
         Write-Host ""
-        Write-Host "*** $Model failed to get latest changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+        Write-Host "*** $_ failed to get latest changes, aborting... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
         Write-Host ""
         Pause("Press any key to continue...")
         Set-Location $currentDirectory
@@ -304,7 +297,7 @@ $memoryForSqlServer = ($totalServerMemory * 0.35) / 1024 / 1024
 
 Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
 
-K:\git\D365DevGoodies\365_PowerShell\enableServices.ps1
+K:\git\d365-resources\365_PowerShell\enableServices.ps1
 Start-D365Environment 
 
 Finished $TaskStartTime
@@ -368,7 +361,7 @@ else {
 #endregion Refresh data entities
 
 #Region SO maintenance
-Set-Location K:\git\D365DevGoodies\365_PowerShell
+Set-Location K:\git\d365-resources\365_PowerShell
 .\updateApps.ps1
 #endregion SO maintenance
 

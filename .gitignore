@@ -1,0 +1,3 @@
+# Machine-local model lists. Seed it from models.template.json or generate it
+# with Export-ModelConfig.ps1 -- never commit environment-specific model names.
+models.json
