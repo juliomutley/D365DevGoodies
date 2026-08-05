@@ -169,7 +169,7 @@ function pause ($message) {
 #Region Main
 stop-process -name devenv -ErrorAction Ignore
 
-# Opt-in: the table list lives in Reset-D365UserData.ps1, shared with BuildModel.ps1
+# Opt-in: the table list lives in Reset-D365UserData.ps1, shared with the other callers
 if ($ResetUserData) {
     & "$PSScriptRoot\Reset-D365UserData.ps1"
 }

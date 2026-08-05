@@ -3,9 +3,9 @@
     Truncates the disposable user-data tables in a D365 F&O database.
 
 .DESCRIPTION
-    Single source of truth for the "disposable user data" table list. Both BuildModel.ps1 and
-    UpdateDevAll.ps1 call this script for their -ResetUserData switch, so a table is added once
-    here and every caller picks it up.
+    Single source of truth for the "disposable user data" table list. UpdateDevAll.ps1,
+    dailyRunAll.ps1 and Invoke-D365ModelCompile.ps1 all call this script for their -ResetUserData
+    switch, so a table is added once here and every caller picks it up.
 
     The four tables hold per-user state that is derived from metadata rather than being business
     data, and that can be left stale or outright invalid by a metadata change:
