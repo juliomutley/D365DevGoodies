@@ -1,5 +1,86 @@
+<#
+.SYNOPSIS
+    The nightly full refresh of a D365 F&O development environment: undo ISV changes, get latest,
+    compile every model in models.json, sync the database, restart services and refresh entities.
+
+.DESCRIPTION
+    The unattended sibling of UpdateDevAll.ps1. It:
+
+      1. Starts a transcript in d:\temp and disables Windows Defender real-time monitoring.
+      2. Updates the dbatools / d365fo.tools / d365fo.integrations PowerShell modules.
+      3. Kills Visual Studio and stops the D365 environment and IIS Express.
+      4. Undoes ISV changes and gets latest from TFVC for every configured model.
+      5. Generates labels and compiles each model, with cross-reference generation and a
+         best-practice check, via Invoke-D365ModelCompile.ps1.
+      6. Runs a full database synchronisation via syncDB.ps1, which raises SQL Server max memory
+         to 70% of RAM and MAXDOP to 0 for the duration and puts them back afterwards.
+      7. Enables the D365 Windows services and starts the environment.
+      8. Opens the environment on the Feature Management page.
+      9. Refreshes the OData/DMF entity list, if credentials were supplied.
+     10. Runs the sibling repo's updateApps.ps1.
+
+    Model lists come from models.json via Get-ModelConfig.ps1 -- never hardcode them here.
+
+    Unlike UpdateDevAll.ps1 this script never waits for a keypress: it is built to run scheduled
+    and unattended, so its 'pause' helper only prints a banner. It also does not call
+    set-Cypher.ps1, which can reboot the machine.
+
+.PARAMETER tenantId
+    Microsoft Entra tenant id used for the OData/DMF entity refresh. The refresh is skipped
+    unless tenantId, clientId and secretKey are all supplied.
+
+.PARAMETER clientId
+    Application (client) id of the Entra app used for the entity refresh. Its row in
+    SYSAADCLIENTTABLE is deleted and re-imported against the 'admin' user.
+
+.PARAMETER secretKey
+    Client secret for the Entra app above.
+
+.PARAMETER ResetUserData
+    Truncates the disposable user-data tables in the local AxDb before compiling, via
+    Reset-D365UserData.ps1, clearing stale personalisation and last-value data that can survive a
+    metadata change.
+
+    Defaults off because 'truncate table' is unrecoverable; ask for it when a form starts
+    rendering oddly after a build.
+
+.EXAMPLE
+    .\dailyRunAll.ps1
+
+    Full refresh: TF undo, get latest, compile all, sync the database. No entity refresh.
+
+.EXAMPLE
+    .\dailyRunAll.ps1 -ResetUserData
+
+    Same, but purge saved form setups and personalisations first.
+
+.EXAMPLE
+    .\dailyRunAll.ps1 -tenantId $tenant -clientId $client -secretKey $secret
+
+    Full refresh, then re-import the Entra application and refresh the DMF entity list.
+
+.NOTES
+    Requires: d365fo.tools, d365fo.integrations, dbatools, VSSetup (installed on demand); 'code'
+    on PATH for the compiler error log, and TF.exe from a VS2022 installation.
+
+    enableServices.ps1 and updateApps.ps1 come from the d365-resources repo, expected alongside
+    this one at ..\d365-resources\365_PowerShell.
+
+    Must run elevated -- Set-MpPreference and the SQL Server instance settings both need it.
+
+    Long-running: a full compile of several models plus a database sync is measured in hours.
+    Transcript at d:\temp\updateDevLog<yyyyMMdd>.log.
+
+    Real-time monitoring is disabled for the run, since on-access scanning slows compilation
+    considerably. Note that syncDB.ps1 re-enables it in its own finally block, so everything after
+    the sync (entity refresh, updateApps.ps1) proceeds with monitoring on -- harmless, as
+    compilation is long finished by then.
+
+    The compile and the sync are delegated to Invoke-D365ModelCompile.ps1 and syncDB.ps1 -- change
+    the recipe there, not here.
+#>
 [CmdletBinding()]
-Param(   
+Param(
     [Parameter(Mandatory=$false, ValueFromPipeline=$true)]
     [String] $tenantId,
 
@@ -7,8 +88,20 @@ Param(
     [String] $clientId,
 
     [Parameter(Mandatory=$false, ValueFromPipeline=$true)]
-    [string] $secretKey
+    [string] $secretKey,
+
+    [Parameter(Mandatory=$false)]
+    [switch] $ResetUserData
 )
+
+# Bail out before touching the environment rather than failing mid-run
+$CurrentPrincipal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $CurrentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host ""
+    Write-Host "*** This script must run elevated. Re-run it as administrator. ***" -ForegroundColor White -BackgroundColor Red
+    Write-Host ""
+    exit 1
+}
 
 if(-not(Test-Path "d:\temp"))
 {
@@ -60,7 +153,8 @@ if (!$vsSetupExists)
     Write-Verbose "Installing the VSSetup module..."
     Install-Module VSSetup -Scope CurrentUser -Force
 }
-[string] $visualStudioInstallationPath = (Get-VSSetupInstance | Select-VSSetupInstance -Latest -Require Microsoft.Component.MSBuild).InstallationPath
+# Select Visual Studio 2022 specifically (version 17.x)
+[string] $visualStudioInstallationPath = (Get-VSSetupInstance | Where-Object { $_.InstallationVersion -like '17.*' } | Select-VSSetupInstance -Latest -Require Microsoft.Component.MSBuild).InstallationPath
 
 $tfExe = (Get-ChildItem $visualStudioInstallationPath -Recurse -Filter "TF.exe" | Select-Object -First 1).FullName
 #endregion variables
@@ -83,95 +177,21 @@ function pause ($message) {
     Write-Host
 }
 
-function Invoke-CompileModel($Model) {
-    Write-Host ""
-    Write-Host "*** Servicing model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-    Write-Host ""
-
-    Remove-Item "$PackagesLocalDirectory\$Model\*.*" -ErrorAction Ignore
-
-    Get-ChildItem "$PackagesLocalDirectory\$Model\bin" `
-        -Include "Dynamics*.*", "$Model*.MD", "*.xpp" -Recurse | Remove-Item -Force -Recurse -ErrorAction Ignore
-
-    Get-ChildItem "$PackagesLocalDirectory\$Model\XppMetadata"  -Recurse | Remove-Item -Force -Recurse -ErrorAction Ignore
-
-    Write-Host ""
-    Write-Host "*** Building labels for model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-    Write-Host ""
-
-    $TaskStartTime = $(Get-Date)
-
-    Invoke-D365ModuleLabelGeneration -Module $Model -LogPath $PackagesLocalDirectory
-
-    if ((Test-Path -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err" -PathType Leaf) -and `
-        ((Get-Item "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err").Length -gt 0)) 
-    {
-        Write-Host ""
-        Write-Host "*** Label compilation error on model $Model... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
-        Write-Host ""
-        Get-Content -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err"
-        [system.media.systemsounds]::Hand.play()
-        Set-Location $currentDirectory
-        Pause("Press any key to continue...")
-        exit
-    }
-
-    Write-Host ""
-    Write-Host "*** Building model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-    Write-Host ""
-
-    Invoke-D365ModuleCompile -Module $Model -XRefGeneration -LogPath $PackagesLocalDirectory
-
-    Finished $TaskStartTime
-
-    if ((Test-Path -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml" -PathType Leaf) -and `
-        ((Get-Item "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml").Length -gt 0))
-    {
-        Write-Host ""
-        Write-Host "*** Compilation error on model $Model... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
-        Write-Host ""
-        code "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml"
-        Set-Location $currentDirectory
-        [system.media.systemsounds]::Hand.play()
-        Pause("Press any key to continue...")
-        exit
-        
-    }
-
-    Write-Host ""
-    Write-Host "*** Checking Best Practices for model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-    Write-Host ""
-
-    $TaskStartTime = $(Get-Date)
-
-    Invoke-D365BestPractice -Module $Model -Model $Model -LogPath $PackagesLocalDirectory
-    Finished $TaskStartTime
-
-}
 #endregion Functions
 
 #Region Main
 stop-process -name devenv -ErrorAction Ignore
+
+# Opt-in: the table list lives in Reset-D365UserData.ps1, shared with the other orchestrators
+if ($ResetUserData) {
+    & "$PSScriptRoot\Reset-D365UserData.ps1"
+}
 
 Write-Host ""
 Write-Host "*** Stopping services... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
 Write-Host ""
 
 $TaskStartTime = $(Get-Date)
-
-Write-Host "purging disposable data"
-
-$DiposableTables = @(
-    "formRunConfiguration"
-    ,"SysLastValue"
-    ,"SysUserLog"
-)
-
-$DiposableTables | ForEach-Object {
-    Write-Host "purging $_"
-    $sql = "truncate table $_"
-    Invoke-DbaQuery -Query $sql -SqlInstance "." -Database "AxDb"
-}
 
 Stop-D365Environment -Kill
 
@@ -243,34 +263,44 @@ $Models2Compile | ForEach-Object {
         exit
     }
 
-    [xml]$XmlDocument = Get-Content -Path "$PackagesLocalDirectory\$_\Descriptor\*.xml"
+    if (Test-Path "$PackagesLocalDirectory\$_\Descriptor\*.xml" -PathType Leaf)
+    {
+        [xml]$XmlDocument = Get-Content -Path "$PackagesLocalDirectory\$_\Descriptor\*.xml"
 
-    $ModelName = $XmlDocument.AxModelInfo.Name
+        $ModelName = $XmlDocument.AxModelInfo.Name
 
-    Set-Location "$packagesLocalDirectory\$_\$ModelName"
-    $TFArgs = @('add', './*.xml', '/recursive')
-    &$tfExe $TFArgs
+        Set-Location "$packagesLocalDirectory\$_\$ModelName"
+        $TFArgs = @('add', './*.xml', '/recursive')
+        &$tfExe $TFArgs
+    }
 }
 
 Finished $TaskStartTime
 
 $TaskStartTime = $(Get-Date)
 
-
-$Models2Compile | ForEach-Object { Invoke-CompileModel $_ }
+# Invoke-D365ModelCompile.ps1 throws on a label or compilation error rather than exiting, since an
+# exit in a child script would only end the child and let this one run on into the sync.
+try
+{
+    $Models2Compile | ForEach-Object {
+        & "$PSScriptRoot\Invoke-D365ModelCompile.ps1" -Model $_
+    }
+}
+catch
+{
+    Write-Host ""
+    Write-Host "*** $($_.Exception.Message) ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+    Write-Host ""
+    Set-Location $currentDirectory
+    Set-MpPreference -DisableRealtimeMonitoring $false
+    Stop-Transcript
+    exit 1
+}
 
 Write-Host ""
 Write-Host "*** Finished servicing all models. ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
 Write-Host ""
-
-ElapsedTime $TaskStartTime
-
-Write-Host ""
-Write-Host "*** Starting services... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-Write-Host ""
-
-$TaskStartTime = $(Get-Date)
-
 
 ElapsedTime $TaskStartTime
 #end region
@@ -282,23 +312,16 @@ Write-Host ""
 
 $TaskStartTime = $(Get-Date)
 
-Remove-Item "$PackagesLocalDirectory\syncLog" -Recurse -force -ErrorAction Ignore
+# syncDB.ps1 owns the whole recipe: SQL max memory and MAXDOP up for the sync and back down
+# afterwards, in a finally so an interrupted sync still hands the machine back.
+& "$PSScriptRoot\syncDB.ps1"
 
-$totalServerMemory = Get-WMIObject -Computername . -class win32_ComputerSystem | Select-Object -Expand TotalPhysicalMemory
-$memoryForSqlServer = ($totalServerMemory * 0.7) / 1024 / 1024
+Write-Host ""
+Write-Host "*** Starting services... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
+Write-Host ""
 
-Set-DbatoolsConfig -Name Import.SqlpsCheck -Value $false -PassThru | Register-DbatoolsConfig
-
-Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
-
-Invoke-D365DbSync -LogPath "$PackagesLocalDirectory\syncLog"
-
-$memoryForSqlServer = ($totalServerMemory * 0.35) / 1024 / 1024
-
-Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
-
-K:\git\d365-resources\365_PowerShell\enableServices.ps1
-Start-D365Environment 
+&"$PSScriptRoot\enableServices.ps1"
+Start-D365Environment
 
 Finished $TaskStartTime
 
@@ -361,8 +384,7 @@ else {
 #endregion Refresh data entities
 
 #Region SO maintenance
-Set-Location K:\git\d365-resources\365_PowerShell
-.\updateApps.ps1
+& "$PSScriptRoot\updateApps.ps1"
 #endregion SO maintenance
 
 Set-MpPreference -DisableRealtimeMonitoring $false
