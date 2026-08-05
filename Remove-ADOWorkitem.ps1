@@ -33,9 +33,10 @@ param (
     [int]$WorkItemId,
 
     [Parameter(Mandatory = $false)]
-    [string]$OrganizationUrl = "https://dev.azure.com/MyOrganization/"
+    [string]$Organization = "MyOrganization"  # Default organization name; replace with your actual organization name if needed 
 )
 
+$OrganizationUrl = "https://dev.azure.com/$Organization/"
 write-host "Logging into Azure..."
 az login --output none --allow-no-subscriptions
 write-host "Configuring Azure DevOps organization..."
