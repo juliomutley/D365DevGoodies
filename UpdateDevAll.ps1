@@ -10,15 +10,17 @@
       2. Kills Visual Studio and stops the D365 environment and IIS Express.
       3. Undoes ISV changes and gets latest from TFVC for every configured model.
       4. Generates labels and compiles each model, with cross-reference generation and a
-         best-practice check.
+         best-practice check, via Invoke-D365ModelCompile.ps1.
       5. Starts the D365 services back up.
-      6. Runs a full database synchronisation, with SQL Server max memory raised to 70% of RAM
-         for the duration and lowered to 35% afterwards.
+      6. Runs a full database synchronisation via syncDB.ps1, which raises SQL Server max memory
+         to 70% of RAM and MAXDOP to 0 for the duration and puts them back afterwards.
       7. Opens the environment on the Feature Management page.
 
     Model lists come from models.json via Get-ModelConfig.ps1 -- never hardcode them here.
     Windows Defender real-time monitoring is disabled for the run, since on-access scanning slows
-    compilation considerably.
+    compilation considerably. Note that syncDB.ps1 re-enables it in its own finally block, so the
+    tail of a full run (opening the browser) proceeds with monitoring on -- harmless, as
+    compilation is long finished by then.
 
 .PARAMETER NoSync
     Skips the entire TFVC section (both the undo of ISV changes and the get-latest) and the
@@ -61,6 +63,9 @@
     Long-running: a full compile of several models plus a database sync is measured in hours.
     Compilation or label errors stop the script and wait for a keypress; the error log opens in
     VS Code.
+
+    The compile and the sync are delegated to Invoke-D365ModelCompile.ps1 and syncDB.ps1 -- change
+    the recipe there, not here.
 #>
 param(
     [Parameter(Mandatory = $false)]
@@ -83,7 +88,7 @@ if (-not $CurrentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
 
 Set-MpPreference -DisableRealtimeMonitoring $true
 
-.\set-Cypher.ps1
+&$PSScriptRoot\set-Cypher.ps1
 
 $Module2Service = $('dbatools',
     'd365fo.tools')
@@ -159,71 +164,6 @@ function pause ($message) {
     }
 }
 
-function Invoke-CompileModel($Model) {
-    Write-Host ""
-    Write-Host "*** Servicing model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-    Write-Host ""
-
-    Remove-Item "$PackagesLocalDirectory\$Model\*.*" -ErrorAction Ignore
-
-    Get-ChildItem "$PackagesLocalDirectory\$Model\bin" `
-        -Include "Dynamics*.*", "$Model*.MD", "*.xpp" -Recurse | Remove-Item -Force -Recurse -ErrorAction Ignore
-
-    Get-ChildItem "$PackagesLocalDirectory\$Model\XppMetadata"  -Recurse | Remove-Item -Force -Recurse -ErrorAction Ignore
-
-    Write-Host ""
-    Write-Host "*** Building labels for model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-    Write-Host ""
-
-    $TaskStartTime = $(Get-Date)
-
-    Invoke-D365ModuleLabelGeneration -Module $Model -LogPath $PackagesLocalDirectory
-
-    if ((Test-Path -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err" -PathType Leaf) -and `
-        ((Get-Item "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err").Length -gt 0)) 
-    {
-        Write-Host ""
-        Write-Host "*** Label compilation error on model $Model... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
-        Write-Host ""
-        Get-Content -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.labelc.err"
-        [system.media.systemsounds]::Hand.play()
-        Set-Location $currentDirectory
-        Pause("Press any key to continue...")
-        exit
-    }
-
-    Write-Host ""
-    Write-Host "*** Building model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-    Write-Host ""
-
-    Invoke-D365ModuleCompile -Module $Model -XRefGeneration -LogPath $PackagesLocalDirectory
-
-    Finished $TaskStartTime
-
-    if ((Test-Path -Path "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml" -PathType Leaf) -and `
-        ((Get-Item "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml").Length -gt 0))
-    {
-        Write-Host ""
-        Write-Host "*** Compilation error on model $Model... ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
-        Write-Host ""
-        code "$PackagesLocalDirectory\$Model\Dynamics.AX.$Model.xppc.err.xml"
-        Set-Location $currentDirectory
-        [system.media.systemsounds]::Hand.play()
-        Pause("Press any key to continue...")
-        exit
-        
-    }
-
-    Write-Host ""
-    Write-Host "*** Checking Best Practices for model $Model... ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
-    Write-Host ""
-
-    $TaskStartTime = $(Get-Date)
-
-    Invoke-D365BestPractice -Module $Model -Model $Model -PackagesRoot
-    Finished $TaskStartTime
-
-}
 #endregion Functions
 
 #Region Main
@@ -318,13 +258,16 @@ else
             exit
         }
 
-        [xml]$XmlDocument = Get-Content -Path "$PackagesLocalDirectory\$_\Descriptor\*.xml"
+        if (Test-Path "$PackagesLocalDirectory\$_\Descriptor\*.xml" -PathType Leaf)
+        {
+            [xml]$XmlDocument = Get-Content -Path "$PackagesLocalDirectory\$_\Descriptor\*.xml"
 
-        $ModelName = $XmlDocument.AxModelInfo.Name
+            $ModelName = $XmlDocument.AxModelInfo.Name
 
-        Set-Location "$packagesLocalDirectory\$_\$ModelName"
-        $TFArgs = @('add', './*.xml', '/recursive')
-        &$tfExe $TFArgs
+            Set-Location "$packagesLocalDirectory\$_\$ModelName"
+            $TFArgs = @('add', './*.xml', '/recursive')
+            &$tfExe $TFArgs
+        }
     }
 
     Finished $TaskStartTime
@@ -333,8 +276,24 @@ else
 
 $TaskStartTime = $(Get-Date)
 
-
-$Models2Compile | ForEach-Object { Invoke-CompileModel $_ }
+# Invoke-D365ModelCompile.ps1 throws on a label or compilation error rather than exiting, since an
+# exit in a child script would only end the child and let this one run on into the sync.
+try
+{
+    $Models2Compile | ForEach-Object {
+        & "$PSScriptRoot\Invoke-D365ModelCompile.ps1" -Model $_
+    }
+}
+catch
+{
+    Write-Host ""
+    Write-Host "*** $($_.Exception.Message) ***" -ForegroundColor $ErrorFGColor -BackgroundColor $ErrorBGColor
+    Write-Host ""
+    Set-Location $currentDirectory
+    Set-MpPreference -DisableRealtimeMonitoring $false
+    Pause("Press any key to continue...")
+    exit 1
+}
 
 Write-Host ""
 Write-Host "*** Finished servicing all models. ***" -ForegroundColor $ActionFGColor -BackgroundColor $ActionBGColor
@@ -369,21 +328,9 @@ else
 
     $TaskStartTime = $(Get-Date)
 
-    Remove-Item "$PackagesLocalDirectory\syncLog" -Recurse -force -ErrorAction Ignore
-
-
-    $totalServerMemory = Get-WMIObject -Computername . -class win32_ComputerSystem | Select-Object -Expand TotalPhysicalMemory
-    $memoryForSqlServer = ($totalServerMemory * 0.7) / 1024 / 1024
-
-    Set-DbatoolsConfig -Name Import.SqlpsCheck -Value $false -PassThru | Register-DbatoolsConfig
-
-    Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
-
-    Invoke-D365DbSync -LogPath "$PackagesLocalDirectory\syncLog"
-
-    $memoryForSqlServer = ($totalServerMemory * 0.35) / 1024 / 1024
-
-    Set-DbaMaxMemory -SqlInstance . -Max $memoryForSqlServer
+    # syncDB.ps1 owns the whole recipe: SQL max memory and MAXDOP up for the sync and back down
+    # afterwards, in a finally so an interrupted sync still hands the machine back.
+    & "$PSScriptRoot\syncDB.ps1"
 
     Finished $TaskStartTime
 }

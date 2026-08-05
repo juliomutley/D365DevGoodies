@@ -12,7 +12,8 @@
          (unlimited parallelism) so the sync can use the whole machine.
       3. Turn off Windows Defender real-time monitoring, which otherwise scans every
          file the sync touches and slows it down considerably.
-      4. Run the database synchronisation with detailed verbosity.
+      4. Run the database synchronisation with detailed verbosity, logging to a freshly
+         emptied log directory.
       5. Restore the machine for normal development use: Defender back on, SQL Server
          max memory down to 15% of RAM, MAXDOP back to 1.
       6. Print the total elapsed time.
@@ -26,15 +27,28 @@
     Note: this only scopes the MAXDOP calls — 'Invoke-D365DbSync' always syncs the
     database configured for the local D365 environment, not this parameter.
 
+.PARAMETER LogPath
+    Directory the sync logs are written to. Defaults to 'syncLog' under the packages
+    local directory of the local D365 environment.
+
+    The directory is deleted before the sync runs, so each run's logs stand alone —
+    do not point this at anything you want to keep.
+
 .EXAMPLE
     .\syncDB.ps1
 
-    Syncs the local D365 environment, tuning MAXDOP on 'AxDb'.
+    Syncs the local D365 environment, tuning MAXDOP on 'AxDb' and logging to
+    <PackagesLocalDirectory>\syncLog.
 
 .EXAMPLE
     .\syncDB.ps1 -DbName 'AxDb_Newest'
 
     Same, but applies the MAXDOP changes to 'AxDb_Newest'.
+
+.EXAMPLE
+    .\syncDB.ps1 -LogPath 'D:\temp\syncLog'
+
+    Same, but writes the sync logs to D:\temp\syncLog.
 
 .NOTES
     Requires: d365fo.tools, dbatools.
@@ -42,7 +56,9 @@
     preferences.
 #>
 param(
-    [string]$DbName = 'AxDb'
+    [string]$DbName = 'AxDb',
+
+    [string]$LogPath
 )
 
 #region functions
@@ -63,6 +79,12 @@ function Finished($StartTime) {
 
 $TaskStartTime = $(Get-Date)
 
+# Resolved here rather than in the param block so the D365 module is loaded by the time we ask.
+if (-not $LogPath) {
+    $PackagesLocalDirectory = (Get-D365EnvironmentSettings).Common.BinDir
+    $LogPath = Join-Path $PackagesLocalDirectory 'syncLog'
+}
+
 # dbatools refuses self-signed SQL certificates by default; local dev instances use one.
 Set-DbatoolsConfig -FullName 'sql.connection.trustcert' -Value $true -Register
 
@@ -79,7 +101,10 @@ try {
     # biggest speed-up here.
     Set-MpPreference -DisableRealtimeMonitoring $true
 
-    Invoke-D365DbSync -Verbosity Detailed
+    # Start from an empty log directory so this run's logs are not mixed with the last one's.
+    Remove-Item $LogPath -Recurse -Force -ErrorAction Ignore
+
+    Invoke-D365DbSync -LogPath $LogPath -Verbosity Detailed
 }
 finally {
     # Always hand the machine back, even if the sync failed or was interrupted.
