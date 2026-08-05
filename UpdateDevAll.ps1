@@ -278,10 +278,12 @@ $TaskStartTime = $(Get-Date)
 
 # Invoke-D365ModelCompile.ps1 throws on a label or compilation error rather than exiting, since an
 # exit in a child script would only end the child and let this one run on into the sync.
+# -DisableDefender:$false because real-time monitoring is already off for the whole run (see above);
+# letting the child restore it would leave every model after the first scanning on access.
 try
 {
     $Models2Compile | ForEach-Object {
-        & "$PSScriptRoot\Invoke-D365ModelCompile.ps1" -Model $_
+        & "$PSScriptRoot\Invoke-D365ModelCompile.ps1" -Model $_ -DisableDefender:$false
     }
 }
 catch
