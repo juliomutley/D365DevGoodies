@@ -1,7 +1,8 @@
 [CmdletBinding()]
 Param(
     [Parameter(Mandatory = $false, ValueFromPipeline = $true)]
-    [string] $directoryPath = "K:\git\d365-resources\365_PowerShell\DatabaseLite"
+    # The matching folder in the d365-resources repo, cloned alongside this one
+    [string] $directoryPath = "$PSScriptRoot\DatabaseLite"
 )
 
 Begin {
