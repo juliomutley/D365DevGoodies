@@ -1,4 +1,4 @@
-﻿'<#
+﻿<#
 .SYNOPSIS
     Prepares a D365 F&O development database for an environment update.
 
@@ -119,7 +119,7 @@ Invoke-DbaQuery -SqlInstance $server -Database $databaseName -Query $sql -QueryT
 # Drop D365 temp tables left behind by sessions older than a day.
 Clear-D365TempDbTables -DatabaseServer $server -DatabaseName $databaseName -Days 1
 
-Enable-D365User
+Enable-D365User -DatabaseServer $server -DatabaseName $databaseName
 
 Write-Host "Enabling change tracking for database $databaseName"
 $sql = "ALTER DATABASE $databaseName SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);"
