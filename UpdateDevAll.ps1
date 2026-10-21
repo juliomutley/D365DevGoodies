@@ -257,20 +257,12 @@ else
             Set-Location $currentDirectory
             exit
         }
-
-        if (Test-Path "$PackagesLocalDirectory\$_\Descriptor\*.xml" -PathType Leaf)
-        {
-            [xml]$XmlDocument = Get-Content -Path "$PackagesLocalDirectory\$_\Descriptor\*.xml"
-
-            $ModelName = $XmlDocument.AxModelInfo.Name
-
-            Set-Location "$packagesLocalDirectory\$_\$ModelName"
-            $TFArgs = @('add', './*.xml', '/recursive')
-            &$tfExe $TFArgs
-        }
     }
 
     Finished $TaskStartTime
+
+    # Recipe lives in Add-D365SourceControl.ps1 -- change it there, not here.
+    & "$PSScriptRoot\Add-D365SourceControl.ps1" -Models $Models2Compile -PackagesLocalDirectory $PackagesLocalDirectory -TfExePath $tfExe
 }
 #endregion source control
 

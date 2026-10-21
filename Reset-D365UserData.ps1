@@ -77,4 +77,7 @@ $DisposableTables | ForEach-Object {
     $sql = "truncate table $_"
     # SysUserLog can be very large on a long-lived dev box, so allow the truncate to take its time.
     Invoke-DbaQuery -SqlInstance $SqlInstance -Database $DatabaseName -Query $sql -QueryTimeout 0
+
 }
+
+Invoke-D365DataFlush -Class SysFlushData,SysFlushAod,SysDataCacheParameters

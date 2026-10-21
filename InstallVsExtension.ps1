@@ -1,10 +1,24 @@
 # Based on https://gist.github.com/ScottHutchinson/b22339c3d3688da5c9b477281e258400
 # Based on http://nuts4.net/post/automated-download-and-installation-of-visual-studio-extensions-via-powershell
 
+function Get-VSIDEDir {
+    param([String] $MajorVersion)
+
+    # vswhere ships with the VS installer and resolves any edition (Community/Professional/Enterprise)
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $installPath = & $vswhere -version "[$MajorVersion.0,$([int]$MajorVersion + 1).0)" -products * -property installationPath | Select-Object -First 1
+        if ($installPath) {
+            return Join-Path $installPath "Common7\IDE"
+        }
+    }
+    return $null
+}
+
 function Invoke-VSInstallExtension {
     param(
         [Parameter(Position=1)]
-        [ValidateSet('2019','2022')]
+        [ValidateSet('2019','2022','2026')]
         [System.String]$Version,  
     [String] $PackageName)
  
@@ -21,7 +35,13 @@ function Invoke-VSInstallExtension {
             $VSInstallDir = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\resources\app\ServiceHub\Services\Microsoft.VisualStudio.Setup.Service"
         }
         '2022' {
-            $VSInstallDir = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\"
+            $VSInstallDir = Get-VSIDEDir -MajorVersion 17
+            if (-not $VSInstallDir) { $VSInstallDir = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\" }
+        }
+        '2026' {
+            # VS 2026 is version 18 and installs under "Microsoft Visual Studio\18\<Edition>"
+            $VSInstallDir = Get-VSIDEDir -MajorVersion 18
+            if (-not $VSInstallDir) { $VSInstallDir = "C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\IDE\" }
         }
     }
 
@@ -32,7 +52,7 @@ function Invoke-VSInstallExtension {
     
         Write-Host "Attempting to download $($PackageName)..."
         $anchor = $HTML.Links |
-        Where-Object { $_.class -eq 'install-button-container' } |
+        Where-Object { $_.class -eq "install-button-container install-btn" } |
         Select-Object -ExpandProperty href
 
         if (-Not $anchor) {
@@ -60,21 +80,32 @@ function Invoke-VSInstallExtension {
     
         Write-Host "Installation of $($PackageName) complete!"
     }
+    else {
+        Write-Host "Visual Studio $($Version) not found, skipping $($PackageName)"
+    }
 }
 
 Get-Process devenv -ErrorAction Ignore | Stop-Process -ErrorAction Ignore
 
-Invoke-VSInstallExtension -Version 2022 -PackageName 'cpmcgrath.Codealignment'
-Invoke-VSInstallExtension -Version 2022 -PackageName 'EWoodruff.VisualStudioSpellCheckerVS2022andLater'
-Invoke-VSInstallExtension -Version 2022 -PackageName 'MadsKristensen.OpeninVisualStudioCode'
-Invoke-VSInstallExtension -Version 2022 -PackageName 'MadsKristensen.TrailingWhitespace64'
-Invoke-VSInstallExtension -Version 2022 -PackageName 'ViktarKarpach.DebugAttachManager2022'
-Invoke-VSInstallExtension -Version 2022 -PackageName 'Zhenkas.LocateInTFS'
+$vsExtensions = @(
+    'cpmcgrath.Codealignment'
+    ,'EWoodruff.VisualStudioSpellCheckerVS2022andLater'
+    ,'MadsKristensen.OpeninVisualStudioCode'
+    ,'MadsKristensen.TrailingWhitespace64'
+    ,'ViktarKarpach.DebugAttachManager2022'
+    ,'Zhenkas.LocateInTFS'
+)
+
+# Installs into each version that is present; missing versions are skipped
+foreach ($vsVersion in @('2022', '2026')) {
+    $vsExtensions | ForEach-Object {
+        Invoke-VSInstallExtension -Version $vsVersion -PackageName $_
+    }
+}
 
 Write-Host "Installing TrudUtils"
 
 $currentPath = Get-Location
-#$repo = "juliomutley/TRUDUtilsD365" # VS2019
 $repo = "TrudAX/TRUDUtilsD365" # VS 2022
 
 
@@ -137,12 +168,22 @@ Get-ChildItem "K:\DeployablePackages" -Include "*.vsix" -Exclude "*.17.0.vsix" -
     Start-Process -Filepath "$($VSInstallDir)\VSIXInstaller" -ArgumentList "/q /a $_" -Wait
 }
 
-$VSInstallDir = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\"
+# The *.17.0.vsix manifests target Version="[17.0,)", so the same packages install into VS 2022 (17) and VS 2026 (18)
+foreach ($vsMajor in @('17', '18')) {
+    $VSInstallDir = Get-VSIDEDir -MajorVersion $vsMajor
+    if (-not $VSInstallDir -and $vsMajor -eq '17') {
+        $VSInstallDir = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\"
+    }
+    if (-not $VSInstallDir -or -not (Test-Path $VSInstallDir)) {
+        Write-Host "Visual Studio $vsMajor.0 not found, skipping D365 dev tools"
+        continue
+    }
 
-Get-ChildItem "K:\DeployablePackages" -Include "*.17.0.vsix" -Recurse | ForEach-Object {
-    Write-Host "installing: $_"
-    Split-Path -Path $VSInstallDir -Leaf -Resolve
-    Start-Process -Filepath "$($VSInstallDir)\VSIXInstaller" -ArgumentList "/q /a $_" -Wait
+    Get-ChildItem "K:\DeployablePackages" -Include "*.17.0.vsix" -Recurse | ForEach-Object {
+        Write-Host "installing: $_"
+        Split-Path -Path $VSInstallDir -Leaf -Resolve
+        Start-Process -Filepath "$($VSInstallDir)\VSIXInstaller" -ArgumentList "/q /a $_" -Wait
+    }
 }
 
 #region vscode extensions
