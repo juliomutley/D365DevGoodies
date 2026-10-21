@@ -2,4 +2,3 @@
 # with Export-ModelConfig.ps1 -- never commit environment-specific model names.
 models.json
 CLAUDE.md
-.gitignore
