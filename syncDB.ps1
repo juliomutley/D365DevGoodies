@@ -56,6 +56,7 @@
     preferences.
 #>
 param(
+    [ArgumentCompleter({ param($c, $p, $w, $a, $f) & "$PSScriptRoot\Get-DbNameCompletion.ps1" -WordToComplete $w -BoundParameters $f })]
     [string]$DbName = 'AxDb',
 
     [string]$LogPath

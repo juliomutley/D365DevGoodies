@@ -48,6 +48,7 @@
     two months from custom high-volume tables.
 #>
 param(
+    [ArgumentCompleter({ param($c, $p, $w, $a, $f) & "$PSScriptRoot\Get-DbNameCompletion.ps1" -WordToComplete $w -BoundParameters $f })]
     [string]$DatabaseName = 'axdb',
     [switch]$ShrinkData = $false
 )

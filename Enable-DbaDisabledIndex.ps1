@@ -22,7 +22,9 @@
 #Requires -Modules dbatools
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
-    [Parameter(Mandatory)] [string]$Database,
+    [Parameter(Mandatory)]
+    [ArgumentCompleter({ param($c, $p, $w, $a, $f) & "$PSScriptRoot\Get-DbNameCompletion.ps1" -WordToComplete $w -BoundParameters $f })]
+    [string]$Database,
     [string]$SqlInstance = 'localhost'
 )
 
