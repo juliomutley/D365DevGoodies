@@ -1,3 +1,7 @@
+# Run with Windows PowerShell 5.1 (powershell.exe), never PowerShell 7 (pwsh): d365fo.tools loads
+# .NET Framework assemblies and fails under pwsh with misleading path errors.
+#Requires -PSEdition Desktop
+
 # Original Script by @batetech shared with permission.
 # This script makes the changes described in https://learn.microsoft.com/en-us/troubleshoot/windows-client/installing-updates-features-roles/troubleshoot-windows-update-error-0x80072efe-with-cipher-suite-configuration
 # This will also fix issues where PowerShell modules can no longer be installed.

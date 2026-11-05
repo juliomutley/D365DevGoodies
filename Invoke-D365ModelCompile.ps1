@@ -91,6 +91,12 @@ the per-model toggle. Wrap the loop in try/catch -- a label or compilation error
 
 param(
     [Parameter(Mandatory = $true)]
+- Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
+  .NET Framework assemblies, and under `pwsh` the script cannot resolve its D365 paths and fails with
+  misleading errors such as "Model VFF not found" and "\bin\...dll path wasn't found". A
+  `#Requires -PSEdition Desktop` line makes `pwsh` refuse to start the script with a clear message.
+  From a `pwsh` or VS Code terminal:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\Invoke-D365ModelCompile.ps1' -Model VFF"`
     [string] $Model,
 
     [Parameter(Mandatory = $false)]
@@ -98,6 +104,8 @@ param(
 
     [Parameter(Mandatory = $false)]
     [switch] $DisableDefender = $true,
+#Requires -PSEdition Desktop
+
 
     [Parameter(Mandatory = $false)]
     [switch] $ShowElapsedTime = $true,

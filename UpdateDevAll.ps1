@@ -55,6 +55,11 @@
     Same, but purge saved form setups and personalisations first.
 
 .NOTES
+- Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
+  .NET Framework assemblies, and under `pwsh` the D365 tooling fails with misleading path errors. A
+  `#Requires -PSEdition Desktop` line makes `pwsh` refuse to start the script with a clear message.
+  From a `pwsh` or VS Code terminal:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\UpdateDevAll.ps1'"`
     Requires: d365fo.tools, dbatools, VSSetup (installed on demand); 'code' on PATH for the
     compiler error log, and TF.exe from a VS2022 installation unless -NoSync is used.
 
@@ -67,6 +72,9 @@
     The compile and the sync are delegated to Invoke-D365ModelCompile.ps1 and syncDB.ps1 -- change
     the recipe there, not here.
 #>
+
+#Requires -PSEdition Desktop
+
 param(
     [Parameter(Mandatory = $false)]
     [switch] $NoSync,

@@ -41,9 +41,17 @@
     Add untracked xml files for a single model, using an already-resolved TF.exe.
 
 .NOTES
+- Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
+  .NET Framework assemblies, and under `pwsh` the D365 tooling fails with misleading path errors. A
+  `#Requires -PSEdition Desktop` line makes `pwsh` refuse to start the script with a clear message.
+  From a `pwsh` or VS Code terminal:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\Add-D365SourceControl.ps1'"`
     Requires: TF.exe from a VS2022 installation (VSSetup module, installed on demand, to
     locate it, unless -TfExePath is supplied).
 #>
+
+#Requires -PSEdition Desktop
+
 param(
     [Parameter(Mandatory = $false)]
     [string[]] $Models,

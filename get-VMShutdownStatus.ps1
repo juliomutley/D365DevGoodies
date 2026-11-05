@@ -1,3 +1,7 @@
+# Run with Windows PowerShell 5.1 (powershell.exe), never PowerShell 7 (pwsh), to stay consistent with the
+# other D365DevGoodies scripts: powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\get-VMShutdownStatus.ps1'"
+#Requires -PSEdition Desktop
+
 install-module AzureAd
 Install-Module Az.Compute
 Install-Module Az.Resources

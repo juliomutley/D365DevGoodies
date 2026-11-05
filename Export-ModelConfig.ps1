@@ -44,11 +44,18 @@ Merges newly discovered packages into the existing models.json.
 Regenerates models.json from disk, dropping manual edits.
 
 .NOTES
+- Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
+  .NET Framework assemblies, and under `pwsh` the D365 tooling fails with misleading path errors. A
+  `#Requires -PSEdition Desktop` line makes `pwsh` refuse to start the script with a clear message.
+  From a `pwsh` or VS Code terminal:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\Export-ModelConfig.ps1'"`
 - d365fo.tools is optional; without it the fallback packages local directory is used.
 - models.json is gitignored -- environment-specific model names stay off the repository.
 - Companion: Get-ModelConfig.ps1 reads the file the orchestrator scripts consume.
 
 #>
+
+#Requires -PSEdition Desktop
 
 [CmdletBinding(SupportsShouldProcess)]
 param(

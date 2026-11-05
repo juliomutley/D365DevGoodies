@@ -39,6 +39,11 @@
     Same, against a restored copy that has not yet been promoted to AxDb.
 
 .NOTES
+- Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
+  .NET Framework assemblies, and under `pwsh` the D365 tooling fails with misleading path errors. A
+  `#Requires -PSEdition Desktop` line makes `pwsh` refuse to start the script with a clear message.
+  From a `pwsh` or VS Code terminal:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\Reset-D365UserData.ps1'"`
     Requires: dbatools. The orchestrator scripts install it -Scope AllUsers, so it is normally
     already present.
 
@@ -48,6 +53,9 @@
     Does not stop or start D365 services. Truncating while the AOS is running is safe for these
     tables, but a user with a session open may see their personalisations vanish mid-use.
 #>
+
+#Requires -PSEdition Desktop
+
 param(
     [string] $SqlInstance = '.',
     [ArgumentCompleter({ param($c, $p, $w, $a, $f) & "$PSScriptRoot\Get-DbNameCompletion.ps1" -WordToComplete $w -BoundParameters $f })]

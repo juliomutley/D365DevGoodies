@@ -13,6 +13,11 @@ The path of the BACPAC file to import.
 Imports the BACPAC file located at "L:\DB Backup\AxDb_Newest.bacpac" into the SQL Server database.
 
 .NOTES
+- Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
+  .NET Framework assemblies, and under `pwsh` the D365 tooling fails with misleading path errors. A
+  `#Requires -PSEdition Desktop` line makes `pwsh` refuse to start the script with a clear message.
+  From a `pwsh` or VS Code terminal:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\importBacPac.ps1'"`
 - This script requires the SqlPackage.exe utility to be installed on the system.
 - The script uses the dbatools module for setting MaxDop and MaxMemory values.
 
@@ -21,6 +26,9 @@ SqlPackage.exe: https://docs.microsoft.com/en-us/sql/tools/sqlpackage/sqlpackage
 dbatools module: https://dbatools.io/
 
 #>
+
+#Requires -PSEdition Desktop
+
 $bacpacFile = "D:\BacPac\PreProd.bacpac" 
 $startTime = $(get-date)
 $arguments = @(

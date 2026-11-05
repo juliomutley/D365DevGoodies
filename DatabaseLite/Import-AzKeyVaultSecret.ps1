@@ -1,3 +1,7 @@
+# Run with Windows PowerShell 5.1 (powershell.exe), never PowerShell 7 (pwsh), to stay consistent with the
+# other D365DevGoodies scripts: powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\Import-AzKeyVaultSecret.ps1'"
+#Requires -PSEdition Desktop
+
 [CmdletBinding()]
 Param(
     [Parameter(Mandatory = $false, ValueFromPipeline = $true)]

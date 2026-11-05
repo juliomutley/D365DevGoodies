@@ -13,11 +13,18 @@ The name of the Dynamics 365 model whose files need to be added to TFS version c
 This example adds all missing XML files in the "MyModel" directory to Azure DevOps using TFS version control.
 
 .NOTES
+- Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
+  .NET Framework assemblies, and under `pwsh` the D365 tooling fails with misleading path errors. A
+  `#Requires -PSEdition Desktop` line makes `pwsh` refuse to start the script with a clear message.
+  From a `pwsh` or VS Code terminal:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\Add-D365TFSourceControl.ps1'"`
 - Ensure that the Dynamics 365 environment settings are properly configured and accessible.
 - The script requires Visual Studio with TFS components installed to locate the TF.exe executable.
 - The script uses the `Get-VSSetupInstance` and `Select-VSSetupInstance` cmdlets to find the latest Visual Studio installation.
 
 #>
+
+#Requires -PSEdition Desktop
 
 param (
     [Parameter(Mandatory = $true)]

@@ -42,11 +42,19 @@
     Full pass including data file shrink and index rebuild.
 
 .NOTES
+- Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
+  .NET Framework assemblies, and under `pwsh` the D365 tooling fails with misleading path errors. A
+  `#Requires -PSEdition Desktop` line makes `pwsh` refuse to start the script with a clear message.
+  From a `pwsh` or VS Code terminal:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\Prepare-D365DevelopmentDatabaseUpdate.ps1'"`
     Requires local admin (installs modules to AllUsers) and sysadmin on the local
     SQL Server instance; both are checked up front and the script throws rather
     than running partially. Populate $LargeTables to also age out rows older than
     two months from custom high-volume tables.
 #>
+
+#Requires -PSEdition Desktop
+
 param(
     [ArgumentCompleter({ param($c, $p, $w, $a, $f) & "$PSScriptRoot\Get-DbNameCompletion.ps1" -WordToComplete $w -BoundParameters $f })]
     [string]$DatabaseName = 'axdb',

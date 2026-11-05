@@ -24,7 +24,17 @@ Base URL of the D365 environment. Defaults to the local environment's URL from `
 
 .EXAMPLE
 .\Invoke-D365RefreshEntities.ps1 -Url 'https://myenv.cloud.onebox.dynamics.com'
+
+.NOTES
+- Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
+  .NET Framework assemblies, and under `pwsh` the D365 tooling fails with misleading path errors. A
+  `#Requires -PSEdition Desktop` line makes `pwsh` refuse to start the script with a clear message.
+  From a `pwsh` or VS Code terminal:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\Invoke-D365RefreshEntities.ps1'"`
 #>
+
+#Requires -PSEdition Desktop
+
 [CmdletBinding()]
 param (
     [string] $MenuItem = 'VFFDevEntityListRefresh',
