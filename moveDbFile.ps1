@@ -1,5 +1,8 @@
 
-$dbName = 'AxDb'
+param(
+    [ArgumentCompleter({ param($c, $p, $w, $a, $f) & "$PSScriptRoot\Get-DbNameCompletion.ps1" -WordToComplete $w -BoundParameters $f })]
+    [string]$dbName = 'AxDb'
+)
 $dataDrive='G:'
 $LogDrive='H:'
 
