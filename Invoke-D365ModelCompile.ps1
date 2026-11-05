@@ -21,8 +21,9 @@ carry on.
 
 Windows Defender real-time monitoring is disabled for the duration by default, since on-access
 scanning slows compilation considerably, and restored in a `finally` -- so a failed build does not
-leave the machine unprotected. Callers that already toggle it around a whole run should pass
--DisableDefender:$false rather than have it re-enabled after each model.
+leave the machine unprotected. Only what this script switched off is switched back on: when monitoring is
+already off on entry (a caller that toggles it once around a whole run), it is left off and not re-enabled
+afterwards, so such a caller needs no opt-out.
 
 A running IIS Express and the AOSService app pool are stopped before the clean-up and the app pool is started
 again afterwards (see -RestartWebHost). Beyond that, the Defender toggle and the optional user-data reset it does nothing
@@ -51,9 +52,9 @@ Disables Windows Defender real-time monitoring for the duration of the compile a
 the way out, including on the throw taken when compilation fails. Defaults on -- on-access scanning
 costs more than the toggle.
 
-Pass -DisableDefender:$false when the caller already disabled monitoring around a longer run;
-otherwise this script's `finally` would switch scanning back on for whatever the caller does next.
-Needs administrator rights when on.
+Monitoring that is already off on entry is left alone and stays off, so a caller that disabled it around a
+longer run does not have it re-enabled after the first model. Pass -DisableDefender:$false only to skip
+the toggle altogether (monitoring is then left exactly as it is). Needs administrator rights when on.
 
 .PARAMETER RestartWebHost
 Stops IIS Express and the AOSService app pool (w3wp) before the build clears the model output, and
@@ -85,10 +86,10 @@ Clean, labels and compile only.
 Purge saved form setups and personalisations first.
 
 .EXAMPLE
-$Models | ForEach-Object { & "$PSScriptRoot\Invoke-D365ModelCompile.ps1" -Model $_ -PackagesLocalDirectory $PackagesLocalDirectory -DisableDefender:$false }
+$Models | ForEach-Object { & "$PSScriptRoot\Invoke-D365ModelCompile.ps1" -Model $_ -PackagesLocalDirectory $PackagesLocalDirectory }
 
-How the orchestrators call it: they toggle Defender once around the whole run, so they opt out of
-the per-model toggle. Wrap the loop in try/catch -- a label or compilation error throws.
+How the orchestrators call it: they toggle Defender once around the whole run, so each model finds
+monitoring already off and leaves it that way. Wrap the loop in try/catch -- a label or compilation error throws.
 
 .NOTES
 - Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
@@ -171,10 +172,15 @@ if ($ResetUserData) {
     & "$PSScriptRoot\Reset-D365UserData.ps1"
 }
 
-# On-access scanning slows compilation considerably; the finally block below always restores it,
-# including on the throws taken when label or X++ compilation fails
+# On-access scanning slows compilation considerably; the finally block below restores it, including on the
+# throws taken when label or X++ compilation fails. Only monitoring that is on is switched off (and so back on):
+# a caller that already turned it off for a longer run keeps it off for every model.
+$DefenderWasOn = $false
 if ($DisableDefender) {
-    Set-MpPreference -DisableRealtimeMonitoring $true
+    $DefenderWasOn = -not (Get-MpPreference).DisableRealtimeMonitoring
+    if ($DefenderWasOn) {
+        Set-MpPreference -DisableRealtimeMonitoring $true
+    }
 }
 
 # IIS Express and the AOSService app pool (w3wp) keep the built assemblies and metadata loaded, which
@@ -258,8 +264,8 @@ try {
     Write-ElapsedTime $ExecutionStartTime
 }
 finally {
-    # Restore on-access scanning, including on the throws above
-    if ($DisableDefender) {
+    # Restore on-access scanning, including on the throws above, if this script is what switched it off
+    if ($DefenderWasOn) {
         Set-MpPreference -DisableRealtimeMonitoring $false
     }
 
