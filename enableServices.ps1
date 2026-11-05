@@ -12,6 +12,6 @@ Get-Service DynamicsAxBatch `
 Start-D365Environment
 Start-Service SQLServerReportingServices
 
-# Starts the AOSService app pool, and IIS Express if disableServices.ps1 stopped it
+# Starts the AOSService app pool (IIS Express is left for Visual Studio to start)
 . "$PSScriptRoot\D365WebHost.ps1"
 Start-D365WebHost

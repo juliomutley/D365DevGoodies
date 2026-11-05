@@ -10,8 +10,8 @@
       1. Checks the shell is elevated and that the source database exists. A
          misspelled name stops here, with the real database names listed, while the
          environment is still untouched.
-      2. Stops the D365 services (disableServices.ps1), IIS, IIS Express (restarted
-         at the end) and the leftover Batch processes.
+      2. Stops the D365 services (disableServices.ps1), IIS, IIS Express and
+         the leftover Batch processes.
       3. Stops and starts SQL Server. Bouncing the engine drops every pending
          connection to AxDb, which is the usual reason a rename fails.
       4. Drops the old AxDb_old, renames AxDb to AxDb_old, renames the source to
@@ -63,7 +63,7 @@ if (-not (Test-Db $AxDBNewest)) {
 Write-Host "Found '$AxDBNewest' - promoting it to AxDb." -ForegroundColor Cyan
 
 Write-Host "Stopping D365 F&O services" -ForegroundColor Cyan
-# Stops IIS Express (remembered for the restart), the AOSService app pool and the D365 services
+# Stops IIS Express, the AOSService app pool and the D365 services
 & "$PSScriptRoot\disableServices.ps1"
 iisreset /stop
 
@@ -108,7 +108,7 @@ if (-not $axDb -or -not $axDb.IsAccessible) {
 Write-Host "AxDb is live: $([math]::Round($axDb.SizeMB)) MB, status $($axDb.Status)." -ForegroundColor Green
 
 Write-Host "Starting D365 F&O services" -ForegroundColor Cyan
-# Sets the D365 services back to Automatic and starts them, plus SSRS, the AOSService app pool and IIS Express
+# Sets the D365 services back to Automatic and starts them, plus SSRS and the AOSService app pool
 & "$PSScriptRoot\enableServices.ps1"
 iisreset /start
 

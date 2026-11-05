@@ -187,8 +187,8 @@ Write-Host "*** Stopping services... ***" -ForegroundColor $ActionFGColor -Backg
 Write-Host ""
 
 $TaskStartTime = $(Get-Date)
-# Remembers how IIS Express was started and stops it, before the environment is killed;
-# enableServices.ps1 or startServices.ps1 starts it again
+# Stops IIS Express before the environment is killed (Visual Studio starts it again when needed);
+# the compile loop below passes -RestartWebHost:$false, since the environment stays down until the sync is done
 . "$PSScriptRoot\D365WebHost.ps1"
 Stop-D365IISExpress
 
@@ -286,7 +286,7 @@ $TaskStartTime = $(Get-Date)
 try
 {
     $Models2Compile | ForEach-Object {
-        & "$PSScriptRoot\Invoke-D365ModelCompile.ps1" -Model $_ -DisableDefender:$false
+        & "$PSScriptRoot\Invoke-D365ModelCompile.ps1" -Model $_ -DisableDefender:$false -RestartWebHost:$false
     }
 }
 catch

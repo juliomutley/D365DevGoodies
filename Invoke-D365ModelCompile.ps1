@@ -24,8 +24,8 @@ scanning slows compilation considerably, and restored in a `finally` -- so a fai
 leave the machine unprotected. Callers that already toggle it around a whole run should pass
 -DisableDefender:$false rather than have it re-enabled after each model.
 
-A running IIS Express and the AOSService app pool are stopped before the clean-up and started again
-afterwards (see -RestartWebHost). Beyond that, the Defender toggle and the optional user-data reset it does nothing
+A running IIS Express and the AOSService app pool are stopped before the clean-up and the app pool is started
+again afterwards (see -RestartWebHost). Beyond that, the Defender toggle and the optional user-data reset it does nothing
 environmental: no elevation check, no service stop/start, no `Set-Location`, no pause-for-keypress. Those belong to whoever
 calls it.
 
@@ -57,11 +57,11 @@ Needs administrator rights when on.
 
 .PARAMETER RestartWebHost
 Stops IIS Express and the AOSService app pool (w3wp) before the build clears the model output, and
-starts them again afterwards (also after a failed build). IIS Express is started with the command line
-it had. Both keep the built assemblies loaded, so without this they lock the files being cleared and
-serve the old build. Defaults on. A host that is not running is left alone. Uses the functions in
-D365WebHost.ps1. Pass -RestartWebHost:$false to leave them alone, for example when a caller already
-restarts them. Needs administrator rights for the app pool.
+starts the app pool again afterwards (also after a failed build). IIS Express is not restarted: Visual
+Studio starts it when needed. Both keep the built assemblies loaded, so without this they lock the files
+being cleared and serve the old build. Defaults on. A host that is not running is left alone. Uses the
+functions in D365WebHost.ps1. Pass -RestartWebHost:$false to leave them alone, for example when a caller
+stops the hosts once around a whole run (both orchestrators do). Needs administrator rights for the app pool.
 
 .PARAMETER ShowElapsedTime
 Prints the elapsed time of the compile, the best-practice check and the model as a whole. Defaults
@@ -178,8 +178,8 @@ if ($DisableDefender) {
 }
 
 # IIS Express and the AOSService app pool (w3wp) keep the built assemblies and metadata loaded, which
-# locks the files cleared below and leaves them serving the old build. Stop both here and start them again
-# in the finally block. D365WebHost.ps1 remembers how IIS Express was started; a host that is not running
+# locks the files cleared below and leaves them serving the old build. Stop both here and start the app pool
+# again in the finally block (IIS Express is left for Visual Studio to start). A host that is not running
 # is left alone.
 if ($RestartWebHost) {
     . "$PSScriptRoot\D365WebHost.ps1"

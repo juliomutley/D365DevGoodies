@@ -6,7 +6,7 @@ Get-Process Batch -ErrorAction Ignore | Stop-Process -Force -ErrorAction Ignore
 
 Restart-Service MSSQLSERVER -Force
 
-# Sets the D365 services back to Automatic and starts them, plus SSRS, the AOSService app pool and IIS Express
+# Sets the D365 services back to Automatic and starts them, plus SSRS and the AOSService app pool
 & "$PSScriptRoot\enableServices.ps1"
 
 iisreset.exe

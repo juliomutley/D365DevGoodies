@@ -4,8 +4,8 @@
 
 . "$PSScriptRoot\D365WebHost.ps1"
 
-# Stops IIS Express and the AOSService app pool, and remembers how IIS Express was started so
-# enableServices.ps1 can bring it back
+# Stops IIS Express and the AOSService app pool. IIS Express is not restarted by enableServices.ps1:
+# Visual Studio starts it again when needed
 Stop-D365WebHost
 
 Get-Service DynamicsAxBatch `
