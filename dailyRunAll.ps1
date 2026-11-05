@@ -60,6 +60,11 @@
     Full refresh, then re-import the Entra application and refresh the DMF entity list.
 
 .NOTES
+- Run it with Windows PowerShell 5.1 (`powershell.exe`), never PowerShell 7 (`pwsh`): d365fo.tools loads
+  .NET Framework assemblies, and under `pwsh` the D365 tooling fails with misleading path errors. A
+  `#Requires -PSEdition Desktop` line makes `pwsh` refuse to start the script with a clear message.
+  From a `pwsh` or VS Code terminal:
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\dailyRunAll.ps1'"`
     Requires: d365fo.tools, d365fo.integrations, dbatools, VSSetup (installed on demand); 'code'
     on PATH for the compiler error log, and TF.exe from a VS2022 installation.
 
@@ -79,6 +84,9 @@
     The compile and the sync are delegated to Invoke-D365ModelCompile.ps1 and syncDB.ps1 -- change
     the recipe there, not here.
 #>
+
+#Requires -PSEdition Desktop
+
 [CmdletBinding()]
 Param(
     [Parameter(Mandatory=$false, ValueFromPipeline=$true)]
@@ -193,9 +201,12 @@ Write-Host ""
 
 $TaskStartTime = $(Get-Date)
 
-Stop-D365Environment -Kill
+# Remembers how IIS Express was started and stops it, before the environment is killed;
+# enableServices.ps1 starts it again at the end
+. "$PSScriptRoot\D365WebHost.ps1"
+Stop-D365IISExpress
 
-Stop-Process -Name "iisexpress" -ErrorAction SilentlyContinue
+Stop-D365Environment -Kill
 
 Finished $TaskStartTime
 

@@ -2,6 +2,12 @@
 # .NET Framework assemblies and fails under pwsh with misleading path errors.
 #Requires -PSEdition Desktop
 
+. "$PSScriptRoot\D365WebHost.ps1"
+
+# Stops IIS Express and the AOSService app pool, and remembers how IIS Express was started so
+# enableServices.ps1 can bring it back
+Stop-D365WebHost
+
 Get-Service DynamicsAxBatch `
     , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
     , MR2012ProcessService `

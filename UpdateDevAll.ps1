@@ -187,9 +187,12 @@ Write-Host "*** Stopping services... ***" -ForegroundColor $ActionFGColor -Backg
 Write-Host ""
 
 $TaskStartTime = $(Get-Date)
-Stop-D365Environment -Kill
+# Remembers how IIS Express was started and stops it, before the environment is killed;
+# enableServices.ps1 or startServices.ps1 starts it again
+. "$PSScriptRoot\D365WebHost.ps1"
+Stop-D365IISExpress
 
-Stop-Process -Name "iisexpress" -ErrorAction SilentlyContinue
+Stop-D365Environment -Kill
 
 Finished $TaskStartTime
 

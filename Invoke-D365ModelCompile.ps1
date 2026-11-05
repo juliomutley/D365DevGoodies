@@ -24,8 +24,9 @@ scanning slows compilation considerably, and restored in a `finally` -- so a fai
 leave the machine unprotected. Callers that already toggle it around a whole run should pass
 -DisableDefender:$false rather than have it re-enabled after each model.
 
-Beyond that toggle and the optional user-data reset it does nothing environmental: no elevation
-check, no service stop/start, no `Set-Location`, no pause-for-keypress. Those belong to whoever
+A running IIS Express and the AOSService app pool are stopped before the clean-up and started again
+afterwards (see -RestartWebHost). Beyond that, the Defender toggle and the optional user-data reset it does nothing
+environmental: no elevation check, no service stop/start, no `Set-Location`, no pause-for-keypress. Those belong to whoever
 calls it.
 
 .PARAMETER Model
@@ -53,6 +54,14 @@ costs more than the toggle.
 Pass -DisableDefender:$false when the caller already disabled monitoring around a longer run;
 otherwise this script's `finally` would switch scanning back on for whatever the caller does next.
 Needs administrator rights when on.
+
+.PARAMETER RestartWebHost
+Stops IIS Express and the AOSService app pool (w3wp) before the build clears the model output, and
+starts them again afterwards (also after a failed build). IIS Express is started with the command line
+it had. Both keep the built assemblies loaded, so without this they lock the files being cleared and
+serve the old build. Defaults on. A host that is not running is left alone. Uses the functions in
+D365WebHost.ps1. Pass -RestartWebHost:$false to leave them alone, for example when a caller already
+restarts them. Needs administrator rights for the app pool.
 
 .PARAMETER ShowElapsedTime
 Prints the elapsed time of the compile, the best-practice check and the model as a whole. Defaults
@@ -114,6 +123,9 @@ param(
     [switch] $SkipBestPractice,
 
     [Parameter(Mandatory = $false)]
+    [switch] $RestartWebHost = $true,
+
+    [Parameter(Mandatory = $false)]
     [string] $PackagesLocalDirectory
 )
 
@@ -163,6 +175,15 @@ if ($ResetUserData) {
 # including on the throws taken when label or X++ compilation fails
 if ($DisableDefender) {
     Set-MpPreference -DisableRealtimeMonitoring $true
+}
+
+# IIS Express and the AOSService app pool (w3wp) keep the built assemblies and metadata loaded, which
+# locks the files cleared below and leaves them serving the old build. Stop both here and start them again
+# in the finally block. D365WebHost.ps1 remembers how IIS Express was started; a host that is not running
+# is left alone.
+if ($RestartWebHost) {
+    . "$PSScriptRoot\D365WebHost.ps1"
+    Stop-D365WebHost
 }
 
 try {
@@ -240,5 +261,10 @@ finally {
     # Restore on-access scanning, including on the throws above
     if ($DisableDefender) {
         Set-MpPreference -DisableRealtimeMonitoring $false
+    }
+
+    # Start the web hosts again, including after a failed build, so the developer is not left without them
+    if ($RestartWebHost) {
+        Start-D365WebHost
     }
 }

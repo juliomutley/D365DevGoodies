@@ -10,7 +10,8 @@
       1. Checks the shell is elevated and that the source database exists. A
          misspelled name stops here, with the real database names listed, while the
          environment is still untouched.
-      2. Stops the D365 services, IIS and the leftover iisexpress/Batch processes.
+      2. Stops the D365 services (disableServices.ps1), IIS, IIS Express (restarted
+         at the end) and the leftover Batch processes.
       3. Stops and starts SQL Server. Bouncing the engine drops every pending
          connection to AxDb, which is the usual reason a rename fails.
       4. Drops the old AxDb_old, renames AxDb to AxDb_old, renames the source to
@@ -62,14 +63,11 @@ if (-not (Test-Db $AxDBNewest)) {
 Write-Host "Found '$AxDBNewest' - promoting it to AxDb." -ForegroundColor Cyan
 
 Write-Host "Stopping D365 F&O services" -ForegroundColor Cyan
-Get-Service DynamicsAxBatch `
-    , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
-    , W3SVC `
-    , MR2012ProcessService `
-| Stop-Service -Force
+# Stops IIS Express (remembered for the restart), the AOSService app pool and the D365 services
+& "$PSScriptRoot\disableServices.ps1"
 iisreset /stop
 
-Get-Process iisexpress, Batch -ErrorAction Ignore | Stop-Process -Force
+Get-Process Batch -ErrorAction Ignore | Stop-Process -Force
 
 # Bouncing the engine is the reliable way to drop sessions still holding AxDb -
 # a crashed AOS or an idle SSMS window will otherwise block the rename.
@@ -110,10 +108,8 @@ if (-not $axDb -or -not $axDb.IsAccessible) {
 Write-Host "AxDb is live: $([math]::Round($axDb.SizeMB)) MB, status $($axDb.Status)." -ForegroundColor Green
 
 Write-Host "Starting D365 F&O services" -ForegroundColor Cyan
-Get-Service DynamicsAxBatch `
-    , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
-    , W3SVC `
-| Start-Service
+# Sets the D365 services back to Automatic and starts them, plus SSRS, the AOSService app pool and IIS Express
+& "$PSScriptRoot\enableServices.ps1"
 iisreset /start
 
 [system.media.systemsounds]::Hand.play()

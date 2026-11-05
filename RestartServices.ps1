@@ -1,18 +1,12 @@
-Get-Service DynamicsAxBatch `
-    , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
-    , W3SVC `
-    , MR2012ProcessService `
-    , MSSQLSERVER `
-| Stop-Service -ErrorAction Ignore
+# Stops IIS Express, the AOSService app pool and the D365 services (disableServices.ps1 also sets their
+# startup type to Disabled)
+& "$PSScriptRoot\disableServices.ps1"
 
-Get-Process iisexpress, Batch -ErrorAction Ignore | Stop-Process -Force -ErrorAction Ignore
+Get-Process Batch -ErrorAction Ignore | Stop-Process -Force -ErrorAction Ignore
 
-Start-Service MSSQLSERVER
+Restart-Service MSSQLSERVER -Force
 
-Get-Service W3SVC `
-    , MR2012ProcessService `
-    , Microsoft.Dynamics.AX.Framework.Tools.DMF.SSISHelperService.exe `
-    , DynamicsAxBatch `
-| Start-Service 
+# Sets the D365 services back to Automatic and starts them, plus SSRS, the AOSService app pool and IIS Express
+& "$PSScriptRoot\enableServices.ps1"
 
-iisreset.exe 
+iisreset.exe
